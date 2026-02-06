@@ -8,3 +8,4 @@
 ^\.RData$
 ^cran-comments\.md$
 ^\.github$
+^fyi\.md$
