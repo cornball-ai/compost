@@ -1,0 +1,15 @@
+Package: compost
+Version: 0.1.0
+Title: Video Compositing via FFmpeg
+Description: Wraps common FFmpeg filter_complex patterns (overlay, chromakey,
+    concat, scale, vstack) into clean R functions for video compositing.
+Authors@R: person("Troy", "Hernandez",
+    email = "troy@cornball.ai",
+    role = c("aut", "cre"))
+License: MIT + file LICENSE
+Encoding: UTF-8
+SystemRequirements: ffmpeg (>= 5.0)
+Imports:
+    processx
+Suggests:
+    tinytest
