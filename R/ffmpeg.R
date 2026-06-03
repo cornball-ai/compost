@@ -5,23 +5,23 @@
 #'
 #' @param args Character vector of ffmpeg arguments.
 #' @param dry_run If TRUE, return the command string instead of running it.
-#' @return On success, the processx result (invisibly). On dry_run, the command string.
+#' @return On success, the exit status (invisibly). On dry_run, the command string.
 #' @keywords internal
-#'
-#' @importFrom processx run
 .run_ffmpeg <- function(args, dry_run = FALSE) {
   if (dry_run) {
     return(paste("ffmpeg", paste(args, collapse = " ")))
   }
 
-  result <- processx::run("ffmpeg", args, error_on_status = FALSE)
+  err <- tempfile()
+  on.exit(unlink(err))
+  status <- system2("ffmpeg", args, stdout = FALSE, stderr = err)
 
-  if (result$status != 0) {
-    stop("FFmpeg failed with status ", result$status, ":\n", result$stderr,
-         call. = FALSE)
+  if (!identical(as.integer(status), 0L)) {
+    stop("FFmpeg failed with status ", status, ":\n",
+         paste(readLines(err, warn = FALSE), collapse = "\n"), call. = FALSE)
   }
 
-  invisible(result)
+  invisible(status)
 }
 
 #' Query a Single Field via ffprobe
@@ -42,14 +42,17 @@
     file
   )
 
-  result <- processx::run("ffprobe", args, error_on_status = FALSE)
+  err <- tempfile()
+  on.exit(unlink(err))
+  out <- suppressWarnings(system2("ffprobe", args, stdout = TRUE, stderr = err))
+  status <- attr(out, "status")
 
-  if (result$status != 0) {
-    stop("ffprobe failed with status ", result$status, ":\n", result$stderr,
-         call. = FALSE)
+  if (!is.null(status) && !identical(as.integer(status), 0L)) {
+    stop("ffprobe failed with status ", status, ":\n",
+         paste(readLines(err, warn = FALSE), collapse = "\n"), call. = FALSE)
   }
 
-  trimws(result$stdout)
+  trimws(paste(out, collapse = "\n"))
 }
 
 #' Is this output path a still image?

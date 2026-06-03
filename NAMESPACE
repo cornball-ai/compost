@@ -11,5 +11,3 @@ export(pip)
 export(probe)
 export(vstack)
 export(zoom)
-
-importFrom(processx,run)
