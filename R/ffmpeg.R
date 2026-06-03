@@ -12,16 +12,19 @@
     return(paste("ffmpeg", paste(args, collapse = " ")))
   }
 
-  err <- tempfile()
-  on.exit(unlink(err))
-  status <- system2("ffmpeg", args, stdout = FALSE, stderr = err)
+  # system2() captures output via system() -> sh -c, so shQuote each arg: filter
+  # graphs carry ; [ ] ' and other shell metacharacters that would otherwise be
+  # split or globbed before ffmpeg ever sees them.
+  err <- suppressWarnings(system2("ffmpeg", shQuote(args), stdout = FALSE,
+                                  stderr = TRUE))
+  status <- attr(err, "status")
 
-  if (!identical(as.integer(status), 0L)) {
+  if (!is.null(status) && !identical(as.integer(status), 0L)) {
     stop("FFmpeg failed with status ", status, ":\n",
-         paste(readLines(err, warn = FALSE), collapse = "\n"), call. = FALSE)
+         paste(err, collapse = "\n"), call. = FALSE)
   }
 
-  invisible(status)
+  invisible(0L)
 }
 
 #' Query a Single Field via ffprobe
@@ -42,14 +45,15 @@
     file
   )
 
-  err <- tempfile()
-  on.exit(unlink(err))
-  out <- suppressWarnings(system2("ffprobe", args, stdout = TRUE, stderr = err))
+  # system2() captures via system() -> sh -c, so shQuote each arg (file paths may
+  # contain spaces). stderr discarded; ffprobe runs with -v error, so a non-zero
+  # status is the signal we act on.
+  out <- suppressWarnings(system2("ffprobe", shQuote(args), stdout = TRUE,
+                                  stderr = FALSE))
   status <- attr(out, "status")
 
   if (!is.null(status) && !identical(as.integer(status), 0L)) {
-    stop("ffprobe failed with status ", status, ":\n",
-         paste(readLines(err, warn = FALSE), collapse = "\n"), call. = FALSE)
+    stop("ffprobe failed with status ", status, call. = FALSE)
   }
 
   trimws(paste(out, collapse = "\n"))
