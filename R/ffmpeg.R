@@ -51,3 +51,12 @@
 
   trimws(result$stdout)
 }
+
+#' Is this output path a still image?
+#'
+#' @param path Output path.
+#' @return TRUE for common still-image extensions.
+#' @keywords internal
+.is_image <- function(path) {
+  grepl("\\.(png|jpe?g|webp|bmp|tiff?)$", path, ignore.case = TRUE)
+}
