@@ -9,7 +9,5 @@ Authors@R: person("Troy", "Hernandez",
 License: MIT + file LICENSE
 Encoding: UTF-8
 SystemRequirements: ffmpeg (>= 5.0)
-Imports:
-    processx
 Suggests:
     tinytest

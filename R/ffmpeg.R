@@ -5,23 +5,26 @@
 #'
 #' @param args Character vector of ffmpeg arguments.
 #' @param dry_run If TRUE, return the command string instead of running it.
-#' @return On success, the processx result (invisibly). On dry_run, the command string.
+#' @return On success, the exit status (invisibly). On dry_run, the command string.
 #' @keywords internal
-#'
-#' @importFrom processx run
 .run_ffmpeg <- function(args, dry_run = FALSE) {
   if (dry_run) {
     return(paste("ffmpeg", paste(args, collapse = " ")))
   }
 
-  result <- processx::run("ffmpeg", args, error_on_status = FALSE)
+  # system2() captures output via system() -> sh -c, so shQuote each arg: filter
+  # graphs carry ; [ ] ' and other shell metacharacters that would otherwise be
+  # split or globbed before ffmpeg ever sees them.
+  err <- suppressWarnings(system2("ffmpeg", shQuote(args), stdout = FALSE,
+                                  stderr = TRUE))
+  status <- attr(err, "status")
 
-  if (result$status != 0) {
-    stop("FFmpeg failed with status ", result$status, ":\n", result$stderr,
-         call. = FALSE)
+  if (!is.null(status) && !identical(as.integer(status), 0L)) {
+    stop("FFmpeg failed with status ", status, ":\n",
+         paste(err, collapse = "\n"), call. = FALSE)
   }
 
-  invisible(result)
+  invisible(0L)
 }
 
 #' Query a Single Field via ffprobe
@@ -42,12 +45,25 @@
     file
   )
 
-  result <- processx::run("ffprobe", args, error_on_status = FALSE)
+  # system2() captures via system() -> sh -c, so shQuote each arg (file paths may
+  # contain spaces). stderr discarded; ffprobe runs with -v error, so a non-zero
+  # status is the signal we act on.
+  out <- suppressWarnings(system2("ffprobe", shQuote(args), stdout = TRUE,
+                                  stderr = FALSE))
+  status <- attr(out, "status")
 
-  if (result$status != 0) {
-    stop("ffprobe failed with status ", result$status, ":\n", result$stderr,
-         call. = FALSE)
+  if (!is.null(status) && !identical(as.integer(status), 0L)) {
+    stop("ffprobe failed with status ", status, call. = FALSE)
   }
 
-  trimws(result$stdout)
+  trimws(paste(out, collapse = "\n"))
+}
+
+#' Is this output path a still image?
+#'
+#' @param path Output path.
+#' @return TRUE for common still-image extensions.
+#' @keywords internal
+.is_image <- function(path) {
+  grepl("\\.(png|jpe?g|webp|bmp|tiff?)$", path, ignore.case = TRUE)
 }

@@ -1,10 +1,13 @@
 # tinyrox says don't edit this manually, but it can't stop you!
 
+export(broadcast_audio)
 export(chromakey)
+export(colorkey)
 export(concat)
+export(frame_export)
 export(hstack)
 export(overlay)
+export(pip)
 export(probe)
 export(vstack)
-
-importFrom(processx,run)
+export(zoom)
