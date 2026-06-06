@@ -19,22 +19,26 @@
 #'
 #' @export
 probe <- function(file, field = "duration") {
+    if (field == "all") {
+        return(list(duration = probe(file, "duration"),
+                    width = probe(file, "width"),
+                    height = probe(file, "height"),
+                    codec = probe(file, "codec_name")))
+    }
 
-  if (field == "all") {
-    return(list(
-      duration = probe(file, "duration"),
-      width    = probe(file, "width"),
-      height   = probe(file, "height"),
-      codec    = probe(file, "codec_name")
-    ))
-  }
+    # Duration lives at the container level, so it resolves for audio-only
+    # files too (a video-stream query returns nothing for an mp3).
+    val <- if (field == "duration") {
+        .probe_format_field(file, "duration")
+    } else {
+        .probe_field(file, field)
+    }
 
-  val <- .probe_field(file, field)
+    # Convert numeric fields
+    if (field %in% c("duration", "width", "height")) {
+        val <- as.numeric(val)
+    }
 
-  # Convert numeric fields
-  if (field %in% c("duration", "width", "height")) {
-    val <- as.numeric(val)
-  }
-
-  val
+    val
 }
+

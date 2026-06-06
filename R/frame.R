@@ -19,20 +19,18 @@
 #' }
 #'
 #' @export
-frame_export <- function(input, time, output, overwrite = TRUE, dry_run = FALSE) {
+frame_export <- function(input, time, output, overwrite = TRUE,
+                         dry_run = FALSE) {
+    input <- normalizePath(input, mustWork = TRUE)
+    output <- normalizePath(output, mustWork = FALSE)
 
-  input <- normalizePath(input, mustWork = TRUE)
-  output <- normalizePath(output, mustWork = FALSE)
+    args <- c(if (overwrite) "-y", "-ss", format(time, scientific = FALSE),
+              "-i", input, "-frames:v", "1", output)
 
-  args <- c(
-    if (overwrite) "-y",
-    "-ss", format(time, scientific = FALSE),
-    "-i", input,
-    "-frames:v", "1",
-    output
-  )
-
-  if (dry_run) return(.run_ffmpeg(args, dry_run = TRUE))
-  .run_ffmpeg(args)
-  invisible(output)
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    invisible(output)
 }
+

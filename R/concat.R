@@ -16,33 +16,26 @@
 #' }
 #'
 #' @export
-concat <- function(
-  inputs,
-  output,
-  overwrite = TRUE,
-  dry_run = FALSE
-) {
+concat <- function(inputs, output, overwrite = TRUE, dry_run = FALSE) {
+    if (length(inputs) < 2) {
+        stop("concat() requires at least 2 inputs", call. = FALSE)
+    }
 
-  if (length(inputs) < 2) stop("concat() requires at least 2 inputs", call. = FALSE)
+    inputs <- normalizePath(inputs, mustWork = TRUE)
+    output <- normalizePath(output, mustWork = FALSE)
 
-  inputs <- normalizePath(inputs, mustWork = TRUE)
-  output <- normalizePath(output, mustWork = FALSE)
+    # Write concat list to temp file
+    concat_list <- tempfile(fileext = ".txt")
+    on.exit(unlink(concat_list), add = TRUE)
+    writeLines(paste0("file '", inputs, "'"), concat_list)
 
-  # Write concat list to temp file
-  concat_list <- tempfile(fileext = ".txt")
-  on.exit(unlink(concat_list), add = TRUE)
-  writeLines(paste0("file '", inputs, "'"), concat_list)
+    args <- c(if (overwrite) "-y", "-f", "concat", "-safe", "0", "-i",
+              concat_list, "-c", "copy", output)
 
-  args <- c(
-    if (overwrite) "-y",
-    "-f", "concat",
-    "-safe", "0",
-    "-i", concat_list,
-    "-c", "copy",
-    output
-  )
-
-  if (dry_run) return(.run_ffmpeg(args, dry_run = TRUE))
-  .run_ffmpeg(args)
-  invisible(output)
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    invisible(output)
 }
+
