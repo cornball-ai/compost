@@ -11,7 +11,7 @@
 \item{dry_run}{If TRUE, return the command string instead of running it.}
 }
 \value{
-On success, the processx result (invisibly). On dry_run, the command string.
+On success, the exit status (invisibly). On dry_run, the command string.
 }
 \description{
 Internal helper that executes ffmpeg with the given arguments.

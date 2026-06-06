@@ -1,5 +1,6 @@
 # tinyrox says don't edit this manually, but it can't stop you!
 
+export(audio_convert)
 export(broadcast_audio)
 export(chromakey)
 export(colorkey)
@@ -9,5 +10,7 @@ export(hstack)
 export(overlay)
 export(pip)
 export(probe)
+export(render_timeline)
+export(subclip)
 export(vstack)
 export(zoom)

@@ -24,50 +24,44 @@
 #' }
 #'
 #' @export
-vstack <- function(
-  top,
-  bottom,
-  output,
-  height_top = NULL,
-  height_bottom = NULL,
-  width = 1080,
-  overwrite = TRUE,
-  dry_run = FALSE
-) {
+vstack <- function(top, bottom, output, height_top = NULL,
+                   height_bottom = NULL, width = 1080, overwrite = TRUE,
+                   dry_run = FALSE) {
+    top <- normalizePath(top, mustWork = TRUE)
+    bottom <- normalizePath(bottom, mustWork = TRUE)
+    output <- normalizePath(output, mustWork = FALSE)
 
-  top <- normalizePath(top, mustWork = TRUE)
-  bottom <- normalizePath(bottom, mustWork = TRUE)
-  output <- normalizePath(output, mustWork = FALSE)
+    # Build scale filters
+    scale_top <- if (!is.null(height_top)) {
+        sprintf("[0:v]scale=%d:%d:force_original_aspect_ratio=disable[top]",
+                width, height_top)
+    } else {
+        sprintf("[0:v]scale=%d:-2[top]", width)
+    }
 
-  # Build scale filters
-  scale_top <- if (!is.null(height_top)) {
-    sprintf("[0:v]scale=%d:%d:force_original_aspect_ratio=disable[top]", width, height_top)
-  } else {
-    sprintf("[0:v]scale=%d:-2[top]", width)
-  }
+    scale_bottom <- if (!is.null(height_bottom)) {
+        sprintf("[1:v]scale=%d:%d:force_original_aspect_ratio=disable[bottom]", width, height_bottom)
+    } else {
+        sprintf("[1:v]scale=%d:-2[bottom]", width)
+    }
 
-  scale_bottom <- if (!is.null(height_bottom)) {
-    sprintf("[1:v]scale=%d:%d:force_original_aspect_ratio=disable[bottom]", width, height_bottom)
-  } else {
-    sprintf("[1:v]scale=%d:-2[bottom]", width)
-  }
+    filter <- paste0(scale_top, ";", scale_bottom, ";[top][bottom]vstack=inputs=2")
 
-  filter <- paste0(scale_top, ";", scale_bottom, ";[top][bottom]vstack=inputs=2")
+    args <- c(
+        if (overwrite) "-y",
+              "-i", top,
+              "-i", bottom,
+              "-filter_complex", filter,
+              "-c:a", "copy",
+              output
+    )
 
-  args <- c(
-    if (overwrite) "-y",
-    "-i", top,
-    "-i", bottom,
-    "-filter_complex", filter,
-    "-c:a", "copy",
-    output
-  )
-
-  if (dry_run) return(.run_ffmpeg(args, dry_run = TRUE))
-  .run_ffmpeg(args)
-  invisible(output)
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    invisible(output)
 }
-
 
 #' Horizontally Stack Two Videos
 #'
@@ -90,45 +84,41 @@ vstack <- function(
 #' }
 #'
 #' @export
-hstack <- function(
-  left,
-  right,
-  output,
-  width_left = NULL,
-  width_right = NULL,
-  height = 1080,
-  overwrite = TRUE,
-  dry_run = FALSE
-) {
+hstack <- function(left, right, output, width_left = NULL,
+                   width_right = NULL, height = 1080, overwrite = TRUE,
+                   dry_run = FALSE) {
+    left <- normalizePath(left, mustWork = TRUE)
+    right <- normalizePath(right, mustWork = TRUE)
+    output <- normalizePath(output, mustWork = FALSE)
 
-  left <- normalizePath(left, mustWork = TRUE)
-  right <- normalizePath(right, mustWork = TRUE)
-  output <- normalizePath(output, mustWork = FALSE)
+    scale_left <- if (!is.null(width_left)) {
+        sprintf("[0:v]scale=%d:%d:force_original_aspect_ratio=disable[left]",
+                width_left, height)
+    } else {
+        sprintf("[0:v]scale=-2:%d[left]", height)
+    }
 
-  scale_left <- if (!is.null(width_left)) {
-    sprintf("[0:v]scale=%d:%d:force_original_aspect_ratio=disable[left]", width_left, height)
-  } else {
-    sprintf("[0:v]scale=-2:%d[left]", height)
-  }
+    scale_right <- if (!is.null(width_right)) {
+        sprintf("[1:v]scale=%d:%d:force_original_aspect_ratio=disable[right]", width_right, height)
+    } else {
+        sprintf("[1:v]scale=-2:%d[right]", height)
+    }
 
-  scale_right <- if (!is.null(width_right)) {
-    sprintf("[1:v]scale=%d:%d:force_original_aspect_ratio=disable[right]", width_right, height)
-  } else {
-    sprintf("[1:v]scale=-2:%d[right]", height)
-  }
+    filter <- paste0(scale_left, ";", scale_right, ";[left][right]hstack=inputs=2")
 
-  filter <- paste0(scale_left, ";", scale_right, ";[left][right]hstack=inputs=2")
+    args <- c(
+        if (overwrite) "-y",
+              "-i", left,
+              "-i", right,
+              "-filter_complex", filter,
+              "-c:a", "copy",
+              output
+    )
 
-  args <- c(
-    if (overwrite) "-y",
-    "-i", left,
-    "-i", right,
-    "-filter_complex", filter,
-    "-c:a", "copy",
-    output
-  )
-
-  if (dry_run) return(.run_ffmpeg(args, dry_run = TRUE))
-  .run_ffmpeg(args)
-  invisible(output)
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    invisible(output)
 }
+

@@ -22,39 +22,29 @@
 #' }
 #'
 #' @export
-broadcast_audio <- function(
-  input,
-  output,
-  dehum = TRUE,
-  target_lufs = -14,
-  fade = 0.06,
-  highpass = 80,
-  overwrite = TRUE,
-  dry_run = FALSE
-) {
+broadcast_audio <- function(input, output, dehum = TRUE, target_lufs = -14,
+                            fade = 0.06, highpass = 80, overwrite = TRUE,
+                            dry_run = FALSE) {
+    input <- normalizePath(input, mustWork = TRUE)
+    output <- normalizePath(output, mustWork = FALSE)
 
-  input <- normalizePath(input, mustWork = TRUE)
-  output <- normalizePath(output, mustWork = FALSE)
+    # The out-fade needs the clip length; probe the audio stream, tolerate failure.
+    dur <- tryCatch(
+                    as.numeric(.probe_field(input, "duration", stream = "a:0")),
+                    error = function(e) NA_real_
+    )
 
-  # The out-fade needs the clip length; probe the audio stream, tolerate failure.
-  dur <- tryCatch(
-    as.numeric(.probe_field(input, "duration", stream = "a:0")),
-    error = function(e) NA_real_
-  )
+    af <- .broadcast_audio_filter(dehum = dehum, target_lufs = target_lufs,
+                                  fade = fade, duration = dur,
+                                  highpass = highpass)
 
-  af <- .broadcast_audio_filter(dehum = dehum, target_lufs = target_lufs,
-                                fade = fade, duration = dur, highpass = highpass)
+    args <- c(if (overwrite) "-y", "-i", input, "-af", af, output)
 
-  args <- c(
-    if (overwrite) "-y",
-    "-i", input,
-    "-af", af,
-    output
-  )
-
-  if (dry_run) return(.run_ffmpeg(args, dry_run = TRUE))
-  .run_ffmpeg(args)
-  invisible(output)
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    invisible(output)
 }
 
 #' Build the -af filter graph for the broadcast-clean chain
@@ -69,23 +59,25 @@ broadcast_audio <- function(
 #' @param highpass High-pass corner frequency in Hz.
 #' @return The comma-joined filter graph string.
 #' @keywords internal
-.broadcast_audio_filter <- function(dehum = TRUE, target_lufs = -14, fade = 0.06,
-                                    duration = NULL, highpass = 80) {
-  f <- sprintf("highpass=f=%g", highpass)
-  if (isTRUE(dehum)) {
-    notches <- vapply(c(60L, 120L, 180L), function(hz) {
-      sprintf("equalizer=f=%d:width_type=q:w=12:g=-30", hz)
-    }, character(1))
-    f <- c(f, notches, "afftdn=nr=12:nf=-25")
-  }
-  f <- c(f,
-         "acompressor=threshold=-22dB:ratio=4:attack=20:release=200:makeup=4",
-         sprintf("loudnorm=I=%g:TP=-1.5:LRA=11", target_lufs))
-  if (fade > 0) {
-    f <- c(f, sprintf("afade=t=in:st=0:d=%g", fade))
-    if (!is.null(duration) && !is.na(duration) && duration > fade) {
-      f <- c(f, sprintf("afade=t=out:st=%g:d=%g", duration - fade, fade))
+.broadcast_audio_filter <- function(dehum = TRUE, target_lufs = -14,
+                                    fade = 0.06, duration = NULL,
+                                    highpass = 80) {
+    f <- sprintf("highpass=f=%g", highpass)
+    if (isTRUE(dehum)) {
+        notches <- vapply(c(60L, 120L, 180L), function(hz) {
+            sprintf("equalizer=f=%d:width_type=q:w=12:g=-30", hz)
+        }, character(1))
+        f <- c(f, notches, "afftdn=nr=12:nf=-25")
     }
-  }
-  paste(f, collapse = ",")
+    f <- c(f,
+           "acompressor=threshold=-22dB:ratio=4:attack=20:release=200:makeup=4",
+           sprintf("loudnorm=I=%g:TP=-1.5:LRA=11", target_lufs))
+    if (fade > 0) {
+        f <- c(f, sprintf("afade=t=in:st=0:d=%g", fade))
+        if (!is.null(duration) && !is.na(duration) && duration > fade) {
+            f <- c(f, sprintf("afade=t=out:st=%g:d=%g", duration - fade, fade))
+        }
+    }
+    paste(f, collapse = ",")
 }
+

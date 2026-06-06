@@ -22,51 +22,41 @@
 #' }
 #'
 #' @export
-overlay <- function(
-  background,
-  foreground,
-  output,
-  x = 0,
-  y = 0,
-  scale = NULL,
-  shortest = TRUE,
-  overwrite = TRUE,
-  dry_run = FALSE
-) {
+overlay <- function(background, foreground, output, x = 0, y = 0,
+                    scale = NULL, shortest = TRUE, overwrite = TRUE,
+                    dry_run = FALSE) {
+    background <- normalizePath(background, mustWork = TRUE)
+    foreground <- normalizePath(foreground, mustWork = TRUE)
+    output <- normalizePath(output, mustWork = FALSE)
 
-  background <- normalizePath(background, mustWork = TRUE)
-  foreground <- normalizePath(foreground, mustWork = TRUE)
-  output <- normalizePath(output, mustWork = FALSE)
+    # Build filter_complex
+    if (!is.null(scale)) {
+        filter <- sprintf("[1:v]scale=%s[fg];[0:v][fg]overlay=%s:%s%s", scale,
+                          x, y, if (shortest) ":shortest=1" else "")
+    } else {
+        filter <- sprintf(
+                          "[0:v][1:v]overlay=%s:%s%s",
+                          x, y,
+            if (shortest) ":shortest=1" else ""
+        )
+    }
 
-  # Build filter_complex
-  if (!is.null(scale)) {
-    filter <- sprintf(
-      "[1:v]scale=%s[fg];[0:v][fg]overlay=%s:%s%s",
-      scale, x, y,
-      if (shortest) ":shortest=1" else ""
+    img <- .is_image(output)
+    args <- c(
+        if (overwrite) "-y",
+              "-i", background,
+              "-i", foreground,
+              "-filter_complex", filter,
+        if (img) c("-frames:v", "1") else c("-c:a", "copy"),
+              output
     )
-  } else {
-    filter <- sprintf(
-      "[0:v][1:v]overlay=%s:%s%s",
-      x, y,
-      if (shortest) ":shortest=1" else ""
-    )
-  }
 
-  args <- c(
-    if (overwrite) "-y",
-    "-i", background,
-    "-i", foreground,
-    "-filter_complex", filter,
-    "-c:a", "copy",
-    output
-  )
-
-  if (dry_run) return(.run_ffmpeg(args, dry_run = TRUE))
-  .run_ffmpeg(args)
-  invisible(output)
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    invisible(output)
 }
-
 
 #' Chromakey (Green/Blue Screen) Compositing
 #'
@@ -93,40 +83,31 @@ overlay <- function(
 #' }
 #'
 #' @export
-chromakey <- function(
-  background,
-  foreground,
-  output,
-  color = "0x00ff00",
-  similarity = 0.1,
-  blend = 0.075,
-  overwrite = TRUE,
-  dry_run = FALSE
-) {
+chromakey <- function(background, foreground, output, color = "0x00ff00",
+                      similarity = 0.1, blend = 0.075, overwrite = TRUE,
+                      dry_run = FALSE) {
+    background <- normalizePath(background, mustWork = TRUE)
+    foreground <- normalizePath(foreground, mustWork = TRUE)
+    output <- normalizePath(output, mustWork = FALSE)
 
-  background <- normalizePath(background, mustWork = TRUE)
-  foreground <- normalizePath(foreground, mustWork = TRUE)
-  output <- normalizePath(output, mustWork = FALSE)
+    filter <- sprintf("[1:v]chromakey=%s:%s:%s[fg];[0:v][fg]overlay", color,
+                      similarity, blend)
 
-  filter <- sprintf(
-    "[1:v]chromakey=%s:%s:%s[fg];[0:v][fg]overlay",
-    color, similarity, blend
-  )
+    args <- c(
+        if (overwrite) "-y",
+              "-i", background,
+              "-i", foreground,
+              "-filter_complex", filter,
+              "-c:a", "copy",
+              output
+    )
 
-  args <- c(
-    if (overwrite) "-y",
-    "-i", background,
-    "-i", foreground,
-    "-filter_complex", filter,
-    "-c:a", "copy",
-    output
-  )
-
-  if (dry_run) return(.run_ffmpeg(args, dry_run = TRUE))
-  .run_ffmpeg(args)
-  invisible(output)
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    invisible(output)
 }
-
 
 #' Picture-in-Picture Corner Overlay
 #'
@@ -153,36 +134,25 @@ chromakey <- function(
 #' }
 #'
 #' @export
-pip <- function(
-  background,
-  foreground,
-  output,
-  scale = 0.604,
-  margin = 230,
-  corner = c("upper-right", "upper-left", "lower-right", "lower-left"),
-  overwrite = TRUE,
-  dry_run = FALSE
-) {
+pip <- function(background, foreground, output, scale = 0.604, margin = 230,
+                corner = c("upper-right", "upper-left", "lower-right", "lower-left"),
+                overwrite = TRUE, dry_run = FALSE) {
+    corner <- match.arg(corner)
+    background <- normalizePath(background, mustWork = TRUE)
+    foreground <- normalizePath(foreground, mustWork = TRUE)
+    output <- normalizePath(output, mustWork = FALSE)
 
-  corner <- match.arg(corner)
-  background <- normalizePath(background, mustWork = TRUE)
-  foreground <- normalizePath(foreground, mustWork = TRUE)
-  output <- normalizePath(output, mustWork = FALSE)
+    filter <- .pip_filter(scale, margin, corner)
 
-  filter <- .pip_filter(scale, margin, corner)
+    args <- c(if (overwrite) "-y", "-i", background, "-i", foreground,
+              "-filter_complex", filter,
+        if (.is_image(output)) c("-frames:v", "1"), output)
 
-  args <- c(
-    if (overwrite) "-y",
-    "-i", background,
-    "-i", foreground,
-    "-filter_complex", filter,
-    if (.is_image(output)) c("-frames:v", "1"),
-    output
-  )
-
-  if (dry_run) return(.run_ffmpeg(args, dry_run = TRUE))
-  .run_ffmpeg(args)
-  invisible(output)
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    invisible(output)
 }
 
 #' Build the PiP corner overlay filter_complex
@@ -193,20 +163,19 @@ pip <- function(
 #' @return The filter_complex string.
 #' @keywords internal
 .pip_filter <- function(scale = 0.604, margin = 230, corner = "upper-right") {
-  x <- if (grepl("right", corner)) {
-    sprintf("main_w-overlay_w-%g", margin)
-  } else {
-    sprintf("%g", margin)
-  }
-  y <- if (grepl("lower", corner)) {
-    sprintf("main_h-overlay_h-%g", margin)
-  } else {
-    sprintf("%g", margin)
-  }
-  sprintf("[1:v]scale=iw*%g:ih*%g[pip];[0:v][pip]overlay=%s:%s",
-          scale, scale, x, y)
+    x <- if (grepl("right", corner)) {
+        sprintf("main_w-overlay_w-%g", margin)
+    } else {
+        sprintf("%g", margin)
+    }
+    y <- if (grepl("lower", corner)) {
+        sprintf("main_h-overlay_h-%g", margin)
+    } else {
+        sprintf("%g", margin)
+    }
+    sprintf("[1:v]scale=iw*%g:ih*%g[pip];[0:v][pip]overlay=%s:%s", scale,
+            scale, x, y)
 }
-
 
 #' Colour-Key to a ProRes 4444 File with Alpha
 #'
@@ -236,38 +205,27 @@ pip <- function(
 #' }
 #'
 #' @export
-colorkey <- function(
-  input,
-  output,
-  color = "auto",
-  similarity = 0.15,
-  blend = 0.05,
-  sample_xy = c(0, 0),
-  overwrite = TRUE,
-  dry_run = FALSE
-) {
+colorkey <- function(input, output, color = "auto", similarity = 0.15,
+                     blend = 0.05, sample_xy = c(0, 0), overwrite = TRUE,
+                     dry_run = FALSE) {
+    input <- normalizePath(input, mustWork = TRUE)
+    output <- normalizePath(output, mustWork = FALSE)
 
-  input <- normalizePath(input, mustWork = TRUE)
-  output <- normalizePath(output, mustWork = FALSE)
+    if (identical(color, "auto")) {
+        color <- .sample_corner_color(input, sample_xy[1], sample_xy[2])
+    }
 
-  if (identical(color, "auto")) {
-    color <- .sample_corner_color(input, sample_xy[1], sample_xy[2])
-  }
+    filter <- sprintf("colorkey=%s:%g:%g", color, similarity, blend)
 
-  filter <- sprintf("colorkey=%s:%g:%g", color, similarity, blend)
+    args <- c(if (overwrite) "-y", "-i", input, "-vf", filter, "-c:v",
+              "prores_ks", "-profile:v", "4444", "-pix_fmt",
+              "yuva444p10le", output)
 
-  args <- c(
-    if (overwrite) "-y",
-    "-i", input,
-    "-vf", filter,
-    "-c:v", "prores_ks", "-profile:v", "4444",
-    "-pix_fmt", "yuva444p10le",
-    output
-  )
-
-  if (dry_run) return(.run_ffmpeg(args, dry_run = TRUE))
-  .run_ffmpeg(args)
-  invisible(output)
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    invisible(output)
 }
 
 #' Sample one pixel's colour from the first frame as 0xRRGGBB
@@ -278,19 +236,17 @@ colorkey <- function(
 #' @return Colour string "0xRRGGBB".
 #' @keywords internal
 .sample_corner_color <- function(file, x = 0, y = 0) {
-  tmp <- tempfile(fileext = ".raw")
-  on.exit(unlink(tmp))
-  # format=rgb24 before the 1x1 crop: a 4:2:0 source can't be cropped to 1px
-  # (the chroma plane would be sub-pixel), so convert to full-res RGB first.
-  .run_ffmpeg(c(
-    "-v", "error", "-y", "-i", file,
-    "-vf", sprintf("format=rgb24,crop=1:1:%d:%d", x, y),
-    "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24",
-    tmp
-  ))
-  rgb <- readBin(tmp, "integer", n = 3L, size = 1L, signed = FALSE)
-  if (length(rgb) < 3L) {
-    stop("could not sample a pixel colour from ", file, call. = FALSE)
-  }
-  sprintf("0x%02X%02X%02X", rgb[1], rgb[2], rgb[3])
+    tmp <- tempfile(fileext = ".raw")
+    on.exit(unlink(tmp))
+    # format=rgb24 before the 1x1 crop: a 4:2:0 source can't be cropped to 1px
+    # (the chroma plane would be sub-pixel), so convert to full-res RGB first.
+    .run_ffmpeg(c("-v", "error", "-y", "-i", file, "-vf",
+                  sprintf("format=rgb24,crop=1:1:%d:%d", x, y), "-frames:v",
+                  "1", "-f", "rawvideo", "-pix_fmt", "rgb24", tmp))
+    rgb <- readBin(tmp, "integer", n = 3L, size = 1L, signed = FALSE)
+    if (length(rgb) < 3L) {
+        stop("could not sample a pixel colour from ", file, call. = FALSE)
+    }
+    sprintf("0x%02X%02X%02X", rgb[1], rgb[2], rgb[3])
 }
+
