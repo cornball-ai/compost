@@ -171,6 +171,11 @@
 #' from \code{metadata$cornball$framing}) and an optional caption burn (from a
 #' caption track referencing an .ass/.srt file) are applied.
 #'
+#' Scope: clips are concatenated as whole media files. Per-clip
+#' \code{source_range} (trims), gaps, transitions, and overlapping layers are not
+#' yet honored -- this targets cornductor's bundle shape, where each clip is
+#' already a cut chunk file. General OTIO trimming is future work.
+#'
 #' Caption tracks are identified by \code{metadata$cornball$role == "caption"} or
 #' a name containing "caption". When the primary video track has a single clip
 #' that already carries its own audio (the talking-head case), no separate audio
