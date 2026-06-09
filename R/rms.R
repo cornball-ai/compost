@@ -35,7 +35,11 @@
             s <- sub("RMS_level=", "", v)
             k <- k + 1L
             tt[k] <- cur
-            rr[k] <- if (grepl("inf", s)) -120 else as.numeric(s)
+            if (grepl("inf", s)) {
+                rr[k] <- -120
+            } else {
+                rr[k] <- as.numeric(s)
+            }
         }
     }
     list(time = tt[seq_len(k)], rms = rr[seq_len(k)])
@@ -70,3 +74,4 @@ rms_curve <- function(file, window = 1024L) {
     }
     .parse_rms(readLines(mfile, warn = FALSE))
 }
+
