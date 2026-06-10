@@ -4,7 +4,8 @@
 \title{Crossfade-concatenate clips, optionally overlaying one audio track}
 \usage{
 crossfade_concat(videos, output, fade = 0.375, audio = NULL,
-                 transition = "dissolve", overwrite = TRUE, dry_run = FALSE)
+                 transition = "dissolve", cuts = NULL, overwrite = TRUE,
+                 dry_run = FALSE)
 }
 \arguments{
 \item{videos}{Character vector of video paths, in order. Must share
@@ -19,6 +20,11 @@ the default conditioning overlap).}
 audio (e.g. the track's full narration mp3).}
 
 \item{transition}{xfade transition name (default \code{"dissolve"}).}
+
+\item{cuts}{Optional logical vector, one per join (length \code{length(videos)
+- 1}). \code{TRUE} makes that join a hard cut (trim the next clip's head and
+butt-join) instead of a crossfade. \code{NULL} (default) = all crossfades.
+Output length is the same either way.}
 
 \item{overwrite}{Overwrite \code{output} (default TRUE).}
 

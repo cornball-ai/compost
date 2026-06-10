@@ -25,5 +25,12 @@ if (at_home()) {
     expect_true(file.exists(out))
     # 3 clips * 3s - 2 fades * 0.5s = 8s
     expect_equal(round(as.numeric(probe(out, "duration"))), 8)
-    unlink(c(a, b, c, out))
+
+    # a hard cut on one join: same length, mixed graph still valid
+    out2 <- tempfile(fileext = ".mp4")
+    crossfade_concat(c(a, b, c), out2, fade = 0.5, cuts = c(TRUE, FALSE))
+    expect_true(file.exists(out2))
+    expect_equal(round(as.numeric(probe(out2, "duration"))), 8)
+
+    unlink(c(a, b, c, out, out2))
 }
