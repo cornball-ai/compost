@@ -27,6 +27,10 @@
 #' @param audio Optional path to a continuous audio track to overlay as the sole
 #'   audio (e.g. the track's full narration mp3).
 #' @param transition xfade transition name (default \code{"dissolve"}).
+#' @param cuts Optional logical vector, one per join (length \code{length(videos)
+#'   - 1}). \code{TRUE} makes that join a hard cut (trim the next clip's head and
+#'   butt-join) instead of a crossfade. \code{NULL} (default) = all crossfades.
+#'   Output length is the same either way.
 #' @param overwrite Overwrite \code{output} (default TRUE).
 #' @param dry_run If TRUE, return the ffmpeg command string without running.
 #' @return Invisibly, \code{output} (or the command string when dry_run).
@@ -37,30 +41,46 @@
 #' }
 #' @export
 crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
-                             transition = "dissolve", overwrite = TRUE,
-                             dry_run = FALSE) {
+                             transition = "dissolve", cuts = NULL,
+                             overwrite = TRUE, dry_run = FALSE) {
     videos <- normalizePath(videos, mustWork = TRUE)
     n <- length(videos)
     if (n < 1) {
         stop("crossfade_concat(): need at least one video", call. = FALSE)
     }
     output <- normalizePath(output, mustWork = FALSE)
+    if (is.null(cuts)) {
+        cuts <- rep(FALSE, max(0L, n - 1L))
+    }
+    cuts <- as.logical(cuts)
 
-    # Build the xfade chain. offset_k = sum(d_0..d_{k-1}) - k*fade.
+    # Build the join chain. Every join consumes `fade`: a crossfade overlaps the
+    # clips by `fade`; a hard cut (cuts[j] TRUE) trims `fade` off the next clip's
+    # head -- dropping the duplicated conditioning frames -- and butt-joins. Each
+    # input is normalised (format/timebase) so xfade and concat mix cleanly.
     if (n == 1) {
         vfilter <- "[0:v]null[vout]"
     } else {
         durs <- vapply(videos, function(v) as.numeric(probe(v, "duration")),
                        numeric(1))
-        parts <- character(0)
-        prev <- "[0:v]"
+        idx <- 0:(n - 1L)
+        parts <- sprintf("[%d:v]format=yuv420p,settb=AVTB[n%d]", idx, idx)
+        prev <- "[n0]"
         cum <- durs[1]
         for (k in 2:n) {
-            offset <- cum - fade
+            j <- k - 1L
             out_lbl <- if (k == n) "[vout]" else sprintf("[vx%d]", k)
-            parts <- c(parts, sprintf(
-                "%s[%d:v]xfade=transition=%s:duration=%g:offset=%g%s",
-                prev, k - 1L, transition, fade, offset, out_lbl))
+            if (isTRUE(cuts[j])) {
+                parts <- c(parts,
+                           sprintf("[n%d]trim=start=%g,setpts=PTS-STARTPTS[ct%d]",
+                                   k - 1L, fade, k - 1L),
+                           sprintf("%s[ct%d]concat=n=2:v=1:a=0%s",
+                                   prev, k - 1L, out_lbl))
+            } else {
+                parts <- c(parts, sprintf(
+                    "%s[n%d]xfade=transition=%s:duration=%g:offset=%g%s",
+                    prev, k - 1L, transition, fade, cum - fade, out_lbl))
+            }
             prev <- out_lbl
             cum <- cum + durs[k] - fade
         }
