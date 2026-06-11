@@ -163,7 +163,16 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
     inputs <- as.vector(rbind("-i", videos))
     a_input <- character(0)
     if (!is.null(audio)) {
-        a_input <- c("-i", normalizePath(audio, mustWork = TRUE))
+        audio <- normalizePath(audio, mustWork = TRUE)
+        a_input <- c("-i", audio)
+        # The overlaid audio is the ground truth: pad the assembled video
+        # (last frame held) or cut it to EXACTLY the audio's duration, so the
+        # two streams always match.
+        adur <- as.numeric(probe(audio, "duration"))
+        vfps <- .video_fps(videos[1])
+        n_frames <- as.integer(round(adur * vfps))
+        vfilter <- sprintf("%s;[vout]tpad=stop_mode=clone:stop=-1[vfin]",
+                           vfilter)
     }
     if (!is.null(audio)) {
         a_map <- c("-map", sprintf("%d:a", n))
@@ -175,11 +184,11 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
         if (overwrite) "-y",
               inputs, a_input,
               "-filter_complex", vfilter,
-              "-map", "[vout]",
+              "-map", if (is.null(audio)) "[vout]" else "[vfin]",
               a_map,
+        if (!is.null(audio)) c("-frames:v", n_frames),
               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
               "-c:a", "aac", "-b:a", "192k",
-        if (!is.null(audio)) "-shortest",
               "-movflags", "+faststart",
               output
     )

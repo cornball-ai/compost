@@ -340,9 +340,15 @@ render_timeline <- function(timeline, output, media_dir = NULL,
     }
 
     # The narration is the ground truth: when an audio bed is mapped, the
-    # video is padded (last frame held) to cover it and the output ends with
-    # the audio. Spoken words are never clipped to a too-short video.
+    # video is padded (last frame held) or cut to EXACTLY the audio's
+    # duration, so the two streams always match. Spoken words are never
+    # clipped to a too-short video; surplus silent video never trails the
+    # voice.
+    n_frames <- NULL
     if (!is.null(audio_file)) {
+        adur <- as.numeric(probe(audio_file, "duration"))
+        vfps <- .video_fps(base_video)
+        n_frames <- as.integer(round(adur * vfps))
         vf <- c(vf, "tpad=stop_mode=clone:stop=-1")
     }
 
@@ -353,13 +359,13 @@ render_timeline <- function(timeline, output, media_dir = NULL,
         if (length(vf) > 0) c("-vf", paste(vf, collapse = ",")),
               "-map", "0:v:0",
         if (!is.null(audio_file)) c("-map", "1:a:0") else c("-map", "0:a:0?"),
+        if (!is.null(n_frames)) c("-frames:v", n_frames),
         if (length(vf) > 0) {
             c("-c:v", "libx264", "-preset", "fast")
         } else {
             c("-c:v", "copy")
         },
               "-c:a", "aac",
-        if (!is.null(audio_file)) "-shortest",
               "-movflags", "+faststart",
               output
     )
