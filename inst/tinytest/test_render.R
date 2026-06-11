@@ -77,3 +77,59 @@ expect_true(grepl("-map 0:a:0\\?", cmd))
 empty <- Timeline("empty")
 expect_error(render_timeline(empty, file.path(dir, "out.mp4"), dry_run = TRUE),
              "no video track")
+
+# --- Transition lowering (at_home: real ffmpeg fixtures) ----------------------
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    master2 <- tempfile(fileext = ".mp4")
+    system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi",
+                                "-i", "testsrc2=duration=5:size=128x128:rate=24",
+                                "-c:v", "libx264", "-qp", "0",
+                                "-pix_fmt", "yuv420p", master2)),
+            stdout = FALSE, stderr = FALSE)
+    sl <- function(from, to) {
+        f <- tempfile(fileext = ".mp4")
+        system2("ffmpeg", shQuote(c("-nostdin", "-y", "-i", master2, "-vf",
+                                    sprintf("trim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS", from, to),
+                                    "-c:v", "libx264", "-qp", "0",
+                                    "-pix_fmt", "yuv420p", f)),
+                stdout = FALSE, stderr = FALSE)
+        f
+    }
+    a <- sl(0, 48)   # 2s
+    b <- sl(39, 96)  # 9-frame replay head + 48 new frames
+
+    tl2 <- Timeline("chained")
+    v2 <- Track("V1", kind = "Video")
+    append_child(v2, Clip("a", ExternalReference(a),
+                          source_range = TimeRange(RationalTime(0, 24),
+                                                   RationalTime(48, 24))))
+    append_child(v2, Transition(name = "join01",
+                                transition_type = "SMPTE_Dissolve",
+                                in_offset = RationalTime(9, 24),
+                                out_offset = RationalTime(0, 24)))
+    append_child(v2, Clip("b", ExternalReference(b),
+                          source_range = TimeRange(RationalTime(9, 24),
+                                                   RationalTime(48, 24))))
+    append_child(tracks(tl2), v2)
+
+    outv <- tempfile(fileext = ".mp4")
+    render_timeline(tl2, outv)
+    expect_true(file.exists(outv))
+    # Played durations sum: 2 + 2 = 4s. The dissolve overlays the cut using
+    # b's head handle; transitions never consume timeline time.
+    dur <- as.numeric(probe(outv, "duration"))
+    expect_true(abs(dur - 4) < 0.1)
+
+    # out_offset > 0 is not lowered
+    v3 <- Track("V1", kind = "Video")
+    append_child(v3, Clip("a", ExternalReference(a)))
+    append_child(v3, Transition(in_offset = RationalTime(0, 24),
+                                out_offset = RationalTime(9, 24)))
+    append_child(v3, Clip("b", ExternalReference(b)))
+    tl3 <- Timeline("bad")
+    append_child(tracks(tl3), v3)
+    expect_error(render_timeline(tl3, tempfile(fileext = ".mp4")),
+                 pattern = "out_offset")
+
+    unlink(c(master2, a, b, outv))
+}

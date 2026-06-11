@@ -33,10 +33,13 @@ from \code{metadata$cornball$framing}) and an optional caption burn (from a
 caption track referencing an .ass/.srt file) are applied.
 }
 \details{
-Scope: clips are concatenated as whole media files. Per-clip
-\code{source_range} (trims), gaps, transitions, and overlapping layers are not
-yet honored -- this targets cornductor's bundle shape, where each clip is
-already a cut chunk file. General OTIO trimming is future work.
+The video track is lowered honoring per-clip \code{source_range} trims and
+\code{Transition}s: a transition between two clips becomes a dissolve over
+exactly its duration, fed by the incoming clip's head handle (the media
+before its source range -- for chained generation, the conditioning-head
+replay). Only transitions with \code{out_offset == 0} are lowered (the
+cornductor bundle shape: the outgoing clip has no tail handle). Gaps and
+overlapping layers are not lowered yet.
 
 Caption tracks are identified by \code{metadata$cornball$role == "caption"} or
 a name containing "caption". When the primary video track has a single clip

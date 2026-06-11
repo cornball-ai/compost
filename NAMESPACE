@@ -1,12 +1,13 @@
 # tinyrox says don't edit this manually, but it can't stop you!
 
+export(align_audio)
+export(align_overlaps)
 export(audio_convert)
 export(broadcast_audio)
 export(chromakey)
 export(colorkey)
 export(concat)
 export(crossfade_concat)
-export(detect_overlap)
 export(frame_export)
 export(hstack)
 export(overlay)
