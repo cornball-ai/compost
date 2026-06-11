@@ -104,7 +104,11 @@
             next
         }
         sr <- tryCatch(rotio::source_range(kd), error = function(e) NULL)
-        fade <- if (length(files) > 0) pending else 0
+        if (length(files) > 0) {
+            fade <- pending
+        } else {
+            fade <- 0
+        }
         pending <- 0
         win <- NULL
         if (!is.null(sr)) {
@@ -300,7 +304,7 @@ render_timeline <- function(timeline, output, media_dir = NULL,
     vclips <- normalizePath(seq_v$files, mustWork = TRUE)
 
     trivial <- all(seq_v$fades == 0) &&
-        all(vapply(seq_v$windows, is.null, logical(1)))
+    all(vapply(seq_v$windows, is.null, logical(1)))
     if (length(vclips) == 1 && trivial) {
         base_video <- vclips[[1]]
     } else if (trivial) {

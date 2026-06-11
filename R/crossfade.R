@@ -80,15 +80,27 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
     # Per-input feed: the selected window of the file (or the whole file),
     # normalised (format/timebase) so xfade and concat mix cleanly.
     feed_dur <- function(i) {
-        w <- if (is.null(windows)) NULL else windows[[i]]
+        if (is.null(windows)) {
+            w <- NULL
+        } else {
+            w <- windows[[i]]
+        }
         full <- as.numeric(probe(videos[i], "duration"))
         if (is.null(w)) {
             return(full)
         }
-        if (is.na(w[2])) full - w[1] else w[2] - w[1]
+        if (is.na(w[2])) {
+            full - w[1]
+        } else {
+            w[2] - w[1]
+        }
     }
     feed_filter <- function(i) {
-        w <- if (is.null(windows)) NULL else windows[[i]]
+        if (is.null(windows)) {
+            w <- NULL
+        } else {
+            w <- windows[[i]]
+        }
         trim <- if (is.null(w) || (w[1] <= 0 && is.na(w[2]))) {
             ""
         } else if (is.na(w[2])) {
@@ -104,7 +116,11 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
     # next clip's head -- dropping the duplicated conditioning frames -- and
     # butt-joins. fades[j] == 0 is a plain butt join either way.
     if (n == 1) {
-        w1 <- if (is.null(windows)) NULL else windows[[1]]
+        if (is.null(windows)) {
+            w1 <- NULL
+        } else {
+            w1 <- windows[[1]]
+        }
         if (is.null(w1) || (w1[1] <= 0 && is.na(w1[2]))) {
             vfilter <- "[0:v]null[vout]"
         } else {
