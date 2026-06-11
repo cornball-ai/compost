@@ -17,7 +17,7 @@ resolution / fps / pixel format (xfade requires it).}
 or a vector with one duration per join (length \code{length(videos) - 1}).
 A join with \code{fade} 0 is a plain butt join -- no overlap consumed, no
 dissolve -- for boundaries where the next clip has no duplicated
-conditioning head (see \code{\link{detect_overlap}}). Default 0.375
+conditioning head (see \code{\link{align_overlaps}}). Default 0.375
 (= 9 frames @ 24fps, the default conditioning overlap).}
 
 \item{audio}{Optional path to a continuous audio track to overlay as the sole
