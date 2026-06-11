@@ -34,16 +34,11 @@ pad <- function(input, output, width, height, fit_width = width,
     output <- normalizePath(output, mustWork = FALSE)
 
     vf <- sprintf(
-        "scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:%s:%s:%s",
-        as.integer(fit_width), as.integer(fit_height),
-        as.integer(width), as.integer(height), x, y, color)
+                  "scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:%s:%s:%s",
+                  as.integer(fit_width), as.integer(fit_height),
+                  as.integer(width), as.integer(height), x, y, color)
 
-    args <- c(
-        if (overwrite) "-y",
-              "-i", input,
-              "-vf", vf,
-              output
-    )
+    args <- c(if (overwrite) "-y", "-i", input, "-vf", vf, output)
 
     if (dry_run) {
         return(.run_ffmpeg(args, dry_run = TRUE))
@@ -51,3 +46,4 @@ pad <- function(input, output, width, height, fit_width = width,
     .run_ffmpeg(args)
     invisible(output)
 }
+

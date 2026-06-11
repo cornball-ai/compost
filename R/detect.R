@@ -50,8 +50,8 @@ detect_overlap <- function(from, to, max_scan = 16L, threshold = 0.95) {
     # the comparison loop runs ~10x faster than at full resolution.
     last_png <- file.path(work, "last.png")
     n_from <- .video_frame_count(from)
-    .run_ffmpeg(c("-nostdin", "-y", "-i", from,
-                  "-vf", sprintf("select='eq(n,%d)',scale=128:128", n_from - 1L),
+    .run_ffmpeg(c("-nostdin", "-y", "-i", from, "-vf",
+                  sprintf("select='eq(n,%d)',scale=128:128", n_from - 1L),
                   "-frames:v", "1", last_png))
 
     # First max_scan frames of `to`.
@@ -69,7 +69,11 @@ detect_overlap <- function(from, to, max_scan = 16L, threshold = 0.95) {
     names(ssim) <- NULL
 
     peak <- which.max(ssim)
-    overlap <- if (ssim[peak] >= threshold) peak else 0L
+    if (ssim[peak] >= threshold) {
+        overlap <- peak
+    } else {
+        overlap <- 0L
+    }
     structure(as.integer(overlap), ssim = ssim)
 }
 
@@ -81,10 +85,9 @@ detect_overlap <- function(from, to, max_scan = 16L, threshold = 0.95) {
         return(n)
     }
     out <- system2("ffprobe",
-                   shQuote(c("-v", "error", "-count_frames",
-                             "-select_streams", "v",
-                             "-show_entries", "stream=nb_read_frames",
-                             "-of", "csv=p=0", file)),
+                   shQuote(c("-v", "error", "-count_frames", "-select_streams", "v",
+                             "-show_entries", "stream=nb_read_frames", "-of",
+                             "csv=p=0", file)),
                    stdout = TRUE, stderr = FALSE)
     n <- suppressWarnings(as.integer(out[1]))
     if (is.na(n)) {
@@ -98,9 +101,8 @@ detect_overlap <- function(from, to, max_scan = 16L, threshold = 0.95) {
 # "[Parsed_ssim_0 @ ...] SSIM R:... G:... B:... All:0.982859 (...)".
 .frame_ssim <- function(a, b) {
     out <- suppressWarnings(system2("ffmpeg",
-                                    shQuote(c("-nostdin", "-i", a, "-i", b,
-                                              "-filter_complex", "ssim",
-                                              "-f", "null", "-")),
+                                    shQuote(c("-nostdin", "-i", a, "-i", b, "-filter_complex",
+                    "ssim", "-f", "null", "-")),
                                     stdout = TRUE, stderr = TRUE))
     m <- regmatches(out, regexpr("All:[0-9.]+", out))
     if (length(m) == 0L) {
@@ -109,3 +111,4 @@ detect_overlap <- function(from, to, max_scan = 16L, threshold = 0.95) {
     }
     as.numeric(sub("All:", "", m[length(m)]))
 }
+

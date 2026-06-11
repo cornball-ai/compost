@@ -82,7 +82,11 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
         for (k in 2:n) {
             j <- k - 1L
             f <- fades[j]
-            out_lbl <- if (k == n) "[vout]" else sprintf("[vx%d]", k)
+            if (k == n) {
+                out_lbl <- "[vout]"
+            } else {
+                out_lbl <- sprintf("[vx%d]", k)
+            }
             if (f <= 0) {
                 parts <- c(parts,
                            sprintf("%s[n%d]concat=n=2:v=1:a=0%s",
@@ -95,8 +99,8 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
                                    prev, k - 1L, out_lbl))
             } else {
                 parts <- c(parts, sprintf(
-                    "%s[n%d]xfade=transition=%s:duration=%g:offset=%g%s",
-                    prev, k - 1L, transition, f, cum - f, out_lbl))
+                        "%s[n%d]xfade=transition=%s:duration=%g:offset=%g%s",
+                        prev, k - 1L, transition, f, cum - f, out_lbl))
             }
             prev <- out_lbl
             cum <- cum + durs[k] - f
@@ -109,18 +113,22 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
     if (!is.null(audio)) {
         a_input <- c("-i", normalizePath(audio, mustWork = TRUE))
     }
-    a_map <- if (!is.null(audio)) c("-map", sprintf("%d:a", n)) else c("-map", "0:a?")
+    if (!is.null(audio)) {
+        a_map <- c("-map", sprintf("%d:a", n))
+    } else {
+        a_map <- c("-map", "0:a?")
+    }
 
     args <- c(
         if (overwrite) "-y",
               inputs, a_input,
-        "-filter_complex", vfilter,
-        "-map", "[vout]",
+              "-filter_complex", vfilter,
+              "-map", "[vout]",
               a_map,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-        "-c:a", "aac", "-b:a", "192k",
+              "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+              "-c:a", "aac", "-b:a", "192k",
         if (!is.null(audio)) "-shortest",
-        "-movflags", "+faststart",
+              "-movflags", "+faststart",
               output
     )
 
@@ -130,3 +138,4 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
     .run_ffmpeg(args)
     invisible(output)
 }
+
