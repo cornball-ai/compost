@@ -32,5 +32,16 @@ if (at_home()) {
     expect_true(file.exists(out2))
     expect_equal(round(as.numeric(probe(out2, "duration"))), 8)
 
-    unlink(c(a, b, c, out, out2))
+    # per-join fades: second join is a plain butt join (fade 0), so only the
+    # first join consumes overlap -> 3*3 - 0.5 = 8.5s
+    out3 <- tempfile(fileext = ".mp4")
+    crossfade_concat(c(a, b, c), out3, fade = c(0.5, 0))
+    expect_true(file.exists(out3))
+    expect_equal(round(as.numeric(probe(out3, "duration")) * 2) / 2, 8.5)
+
+    # fade vector of the wrong length errors
+    expect_error(crossfade_concat(c(a, b, c), out3, fade = c(0.5, 0, 0.5)),
+                 pattern = "one value per join")
+
+    unlink(c(a, b, c, out, out2, out3))
 }
