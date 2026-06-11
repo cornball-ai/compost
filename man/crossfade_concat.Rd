@@ -13,8 +13,12 @@ resolution / fps / pixel format (xfade requires it).}
 
 \item{output}{Output video path.}
 
-\item{fade}{Crossfade duration in seconds (default 0.375 = 9 frames @ 24fps,
-the default conditioning overlap).}
+\item{fade}{Crossfade duration in seconds: a scalar applied to every join,
+or a vector with one duration per join (length \code{length(videos) - 1}).
+A join with \code{fade} 0 is a plain butt join -- no overlap consumed, no
+dissolve -- for boundaries where the next clip has no duplicated
+conditioning head (see \code{\link{detect_overlap}}). Default 0.375
+(= 9 frames @ 24fps, the default conditioning overlap).}
 
 \item{audio}{Optional path to a continuous audio track to overlay as the sole
 audio (e.g. the track's full narration mp3).}
@@ -22,9 +26,10 @@ audio (e.g. the track's full narration mp3).}
 \item{transition}{xfade transition name (default \code{"dissolve"}).}
 
 \item{cuts}{Optional logical vector, one per join (length \code{length(videos)
-- 1}). \code{TRUE} makes that join a hard cut (trim the next clip's head and
-butt-join) instead of a crossfade. \code{NULL} (default) = all crossfades.
-Output length is the same either way.}
+- 1}). \code{TRUE} makes that join a hard cut (trim the next clip's head by
+that join's \code{fade} and butt-join) instead of a crossfade. \code{NULL}
+(default) = all crossfades. Output length is the same either way; a cut at
+a zero-\code{fade} join is just a butt join.}
 
 \item{overwrite}{Overwrite \code{output} (default TRUE).}
 
@@ -42,8 +47,8 @@ per-chunk audio has a silent conditioning head; the continuous narration has
 no such gaps. Without \code{audio}, the first clip's audio is mapped through.
 }
 \details{
-Each crossfade consumes \code{fade} seconds of overlap, so the result runs
-\code{sum(durations) - (n-1)*fade} long -- slightly shorter than a hard
+Each join consumes its \code{fade} seconds of overlap, so the result runs
+\code{sum(durations) - sum(fades)} long -- slightly shorter than a hard
 concat. One ffmpeg pass via xfade.
 
 }
