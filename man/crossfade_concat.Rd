@@ -4,8 +4,8 @@
 \title{Crossfade-concatenate clips, optionally overlaying one audio track}
 \usage{
 crossfade_concat(videos, output, fade = 0.375, audio = NULL,
-                 transition = "dissolve", cuts = NULL, overwrite = TRUE,
-                 dry_run = FALSE)
+                 transition = "dissolve", cuts = NULL, windows = NULL,
+                 overwrite = TRUE, dry_run = FALSE)
 }
 \arguments{
 \item{videos}{Character vector of video paths, in order. Must share
@@ -30,6 +30,14 @@ audio (e.g. the track's full narration mp3).}
 that join's \code{fade} and butt-join) instead of a crossfade. \code{NULL}
 (default) = all crossfades. Output length is the same either way; a cut at
 a zero-\code{fade} join is just a butt join.}
+
+\item{windows}{Optional list, one element per video: \code{c(start, end)} in
+seconds selecting the part of the file to feed in (\code{NA} end = to the
+end of file), or \code{NULL} for the whole file. For a crossfaded join the
+incoming window should \emph{include} the head handle the fade consumes
+(the fade eats \code{fade} seconds off the window's front against the
+previous clip's tail). Used by \code{render_timeline} to honor OTIO
+source ranges.}
 
 \item{overwrite}{Overwrite \code{output} (default TRUE).}
 

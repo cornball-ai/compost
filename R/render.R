@@ -66,6 +66,70 @@
     urls
 }
 
+#' Walk a video track into renderable clip feeds and join fades
+#'
+#' Returns the clips' resolved files, per-clip source windows (the media to
+#' feed in: the source range, widened at the front by a preceding Transition's
+#' in_offset so the dissolve has its handle), and per-join fade durations
+#' (0 = butt join). A clip without a source_range feeds the whole file.
+#'
+#' @param track A rotio video Track.
+#' @param media_dir Base directory for relative urls, or NULL.
+#' @return list(files, windows, fades).
+#' @keywords internal
+.video_sequence <- function(track, media_dir = NULL) {
+    files <- character(0)
+    windows <- list()
+    fades <- numeric(0)
+    pending <- 0
+    for (kd in rotio::children(track)) {
+        if (inherits(kd, "Transition")) {
+            if (rotio::to_seconds(kd$out_offset) > 0) {
+                stop("render_timeline(): Transition with out_offset > 0 is ",
+                     "not lowered yet (the outgoing clip would need a tail ",
+                     "handle)", call. = FALSE)
+            }
+            pending <- rotio::to_seconds(kd$in_offset)
+            next
+        }
+        if (!inherits(kd, "Clip")) {
+            next
+        }
+        mr <- tryCatch(rotio::media_reference(kd), error = function(e) NULL)
+        if (is.null(mr)) {
+            next
+        }
+        u <- tryCatch(rotio::target_url(mr), error = function(e) NA_character_)
+        if (is.na(u) || !nzchar(u)) {
+            next
+        }
+        sr <- tryCatch(rotio::source_range(kd), error = function(e) NULL)
+        fade <- if (length(files) > 0) pending else 0
+        pending <- 0
+        win <- NULL
+        if (!is.null(sr)) {
+            s <- rotio::to_seconds(sr$start_time)
+            e <- s + rotio::to_seconds(sr$duration)
+            # Widen the front by the fade so the dissolve consumes the head
+            # handle (the conditioning replay) instead of played content.
+            ws <- max(0, s - fade)
+            # Legacy timelines wrote nominal [0, dur] ranges over whole-file
+            # media; only a range that starts past 0 (a real head trim) or a
+            # fade needing its handle constitutes an actual window.
+            if (ws > 0 || fade > 0) {
+                win <- c(ws, e)
+            }
+        }
+        files <- c(files, .resolve_media(u, media_dir))
+        if (length(files) > 1) {
+            fades <- c(fades, fade)
+        }
+        # c(list(win)) rather than [[<-: assigning NULL would drop the slot.
+        windows <- c(windows, list(win))
+    }
+    list(files = files, windows = windows, fades = fades)
+}
+
 #' Framing transform for the timeline
 #'
 #' Looks for \code{metadata$cornball$framing} on the first video clip's media
@@ -171,10 +235,13 @@
 #' from \code{metadata$cornball$framing}) and an optional caption burn (from a
 #' caption track referencing an .ass/.srt file) are applied.
 #'
-#' Scope: clips are concatenated as whole media files. Per-clip
-#' \code{source_range} (trims), gaps, transitions, and overlapping layers are not
-#' yet honored -- this targets cornductor's bundle shape, where each clip is
-#' already a cut chunk file. General OTIO trimming is future work.
+#' The video track is lowered honoring per-clip \code{source_range} trims and
+#' \code{Transition}s: a transition between two clips becomes a dissolve over
+#' exactly its duration, fed by the incoming clip's head handle (the media
+#' before its source range -- for chained generation, the conditioning-head
+#' replay). Only transitions with \code{out_offset == 0} are lowered (the
+#' cornductor bundle shape: the outgoing clip has no tail handle). Gaps and
+#' overlapping layers are not lowered yet.
 #'
 #' Caption tracks are identified by \code{metadata$cornball$role == "caption"} or
 #' a name containing "caption". When the primary video track has a single clip
@@ -224,20 +291,29 @@ render_timeline <- function(timeline, output, media_dir = NULL,
         stop("render_timeline(): no video track found", call. = FALSE)
     }
 
-    # Video clips, in order, from the first video track.
-    vclips <- .clip_urls(vtracks[[1]], media_dir)
-    if (length(vclips) == 0) {
+    # Video items from the first video track: clips with their source windows
+    # and the Transitions joining them.
+    seq_v <- .video_sequence(vtracks[[1]], media_dir)
+    if (length(seq_v$files) == 0) {
         stop("render_timeline(): the video track has no clips", call. = FALSE)
     }
-    vclips <- normalizePath(vclips, mustWork = TRUE)
+    vclips <- normalizePath(seq_v$files, mustWork = TRUE)
 
-    # Concatenate multiple clips first; a single clip passes through unchanged.
-    if (length(vclips) > 1) {
+    trivial <- all(seq_v$fades == 0) &&
+        all(vapply(seq_v$windows, is.null, logical(1)))
+    if (length(vclips) == 1 && trivial) {
+        base_video <- vclips[[1]]
+    } else if (trivial) {
+        # Whole files, butt joins: stream-copy concat is cheaper than filtering.
         base_video <- tempfile(fileext = ".mp4")
         on.exit(unlink(base_video), add = TRUE)
         concat(vclips, base_video, overwrite = TRUE)
     } else {
-        base_video <- vclips[[1]]
+        base_video <- tempfile(fileext = ".mp4")
+        on.exit(unlink(base_video), add = TRUE)
+        crossfade_concat(vclips, base_video,
+                         fade = if (length(seq_v$fades)) seq_v$fades else 0,
+                         windows = seq_v$windows, overwrite = TRUE)
     }
 
     # Framing (scale + pad) and an optional caption burn share one filter chain.

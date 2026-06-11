@@ -36,6 +36,13 @@
 #'   that join's \code{fade} and butt-join) instead of a crossfade. \code{NULL}
 #'   (default) = all crossfades. Output length is the same either way; a cut at
 #'   a zero-\code{fade} join is just a butt join.
+#' @param windows Optional list, one element per video: \code{c(start, end)} in
+#'   seconds selecting the part of the file to feed in (\code{NA} end = to the
+#'   end of file), or \code{NULL} for the whole file. For a crossfaded join the
+#'   incoming window should \emph{include} the head handle the fade consumes
+#'   (the fade eats \code{fade} seconds off the window's front against the
+#'   previous clip's tail). Used by \code{render_timeline} to honor OTIO
+#'   source ranges.
 #' @param overwrite Overwrite \code{output} (default TRUE).
 #' @param dry_run If TRUE, return the ffmpeg command string without running.
 #' @return Invisibly, \code{output} (or the command string when dry_run).
@@ -47,7 +54,8 @@
 #' @export
 crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
                              transition = "dissolve", cuts = NULL,
-                             overwrite = TRUE, dry_run = FALSE) {
+                             windows = NULL, overwrite = TRUE,
+                             dry_run = FALSE) {
     videos <- normalizePath(videos, mustWork = TRUE)
     n <- length(videos)
     if (n < 1) {
@@ -64,19 +72,47 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
              n_joins, ")", call. = FALSE)
     }
     fades <- rep_len(as.numeric(fade), n_joins)
+    if (!is.null(windows) && length(windows) != n) {
+        stop("crossfade_concat(): windows must have one element per video",
+             call. = FALSE)
+    }
+
+    # Per-input feed: the selected window of the file (or the whole file),
+    # normalised (format/timebase) so xfade and concat mix cleanly.
+    feed_dur <- function(i) {
+        w <- if (is.null(windows)) NULL else windows[[i]]
+        full <- as.numeric(probe(videos[i], "duration"))
+        if (is.null(w)) {
+            return(full)
+        }
+        if (is.na(w[2])) full - w[1] else w[2] - w[1]
+    }
+    feed_filter <- function(i) {
+        w <- if (is.null(windows)) NULL else windows[[i]]
+        trim <- if (is.null(w) || (w[1] <= 0 && is.na(w[2]))) {
+            ""
+        } else if (is.na(w[2])) {
+            sprintf("trim=start=%g,setpts=PTS-STARTPTS,", w[1])
+        } else {
+            sprintf("trim=start=%g:end=%g,setpts=PTS-STARTPTS,", w[1], w[2])
+        }
+        sprintf("[%d:v]%sformat=yuv420p,settb=AVTB[n%d]", i - 1L, trim, i - 1L)
+    }
 
     # Build the join chain. Each join j consumes fades[j]: a crossfade overlaps
     # the clips by fades[j]; a hard cut (cuts[j] TRUE) trims fades[j] off the
     # next clip's head -- dropping the duplicated conditioning frames -- and
-    # butt-joins. fades[j] == 0 is a plain butt join either way. Each input is
-    # normalised (format/timebase) so xfade and concat mix cleanly.
+    # butt-joins. fades[j] == 0 is a plain butt join either way.
     if (n == 1) {
-        vfilter <- "[0:v]null[vout]"
+        w1 <- if (is.null(windows)) NULL else windows[[1]]
+        if (is.null(w1) || (w1[1] <= 0 && is.na(w1[2]))) {
+            vfilter <- "[0:v]null[vout]"
+        } else {
+            vfilter <- sub("\\[n0\\]$", "[vout]", feed_filter(1))
+        }
     } else {
-        durs <- vapply(videos, function(v) as.numeric(probe(v, "duration")),
-                       numeric(1))
-        idx <- 0:(n - 1L)
-        parts <- sprintf("[%d:v]format=yuv420p,settb=AVTB[n%d]", idx, idx)
+        durs <- vapply(seq_len(n), feed_dur, numeric(1))
+        parts <- vapply(seq_len(n), feed_filter, character(1))
         prev <- "[n0]"
         cum <- durs[1]
         for (k in 2:n) {
