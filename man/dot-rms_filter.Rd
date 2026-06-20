@@ -5,6 +5,14 @@
 \usage{
 .rms_filter(window, mfile)
 }
+\arguments{
+\item{window}{Window size in samples.}
+
+\item{mfile}{Path the ametadata print stream is written to.}
+}
+\value{
+A single ffmpeg filter-chain string.
+}
 \description{
 Slices the audio into \code{window}-sample blocks and prints each block's
 overall RMS level (dB) as ametadata to \code{mfile}.
