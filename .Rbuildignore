@@ -4,6 +4,7 @@
 ^\.git$
 ^\.gitignore$
 ^CLAUDE\.md$
+^\.claude$
 ^\.Rhistory$
 ^\.RData$
 ^cran-comments\.md$
