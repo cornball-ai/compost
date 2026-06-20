@@ -2,5 +2,6 @@
 .Rhistory
 .RData
 .Ruserdata
+.claude/
 compost.Rproj
 man-md/
