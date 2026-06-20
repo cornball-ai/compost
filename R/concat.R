@@ -24,10 +24,12 @@ concat <- function(inputs, output, overwrite = TRUE, dry_run = FALSE) {
     inputs <- normalizePath(inputs, mustWork = TRUE)
     output <- normalizePath(output, mustWork = FALSE)
 
-    # Write concat list to temp file
+    # Write concat list to temp file. Forward-slash the paths: the concat demuxer
+    # treats backslash as an escape character inside a quoted path, so a Windows
+    # path like C:\Users\... would be mangled. ffmpeg accepts / on Windows.
     concat_list <- tempfile(fileext = ".txt")
     on.exit(unlink(concat_list), add = TRUE)
-    writeLines(paste0("file '", inputs, "'"), concat_list)
+    writeLines(paste0("file '", gsub("\\\\", "/", inputs), "'"), concat_list)
 
     args <- c(if (overwrite) "-y", "-f", "concat", "-safe", "0", "-i",
               concat_list, "-c", "copy", output)
