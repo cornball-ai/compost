@@ -25,3 +25,8 @@ each join's overlap from the positions: the seconds by which chunk
 chained chunk's duplicated head and an undersized chunk's shortfall both
 fall out of where the words actually are.
 }
+\examples{
+\dontrun{
+align_overlaps(c("media/chunk01.mp4", "media/chunk02.mp4"), "audio.mp3")
+}
+}

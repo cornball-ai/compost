@@ -7,6 +7,9 @@
 #'
 #' Slices the audio into \code{window}-sample blocks and prints each block's
 #' overall RMS level (dB) as ametadata to \code{mfile}.
+#' @param window Window size in samples.
+#' @param mfile Path the ametadata print stream is written to.
+#' @return A single ffmpeg filter-chain string.
 #' @keywords internal
 .rms_filter <- function(window, mfile) {
     sprintf(paste0("asetnsamples=%d,astats=metadata=1:reset=1,",
@@ -19,6 +22,9 @@
 #' The print stream alternates a \code{pts_time:<t>} line and an
 #' \code{RMS_level=<db>} line per window. Digital silence prints \code{-inf},
 #' mapped to -120.
+#' @param lines Character vector of ffmpeg ametadata print output.
+#' @return A list with numeric \code{time} (window centre, seconds) and
+#'   \code{rms} (RMS level in dB).
 #' @keywords internal
 .parse_rms <- function(lines) {
     tt <- rr <- numeric(length(lines))

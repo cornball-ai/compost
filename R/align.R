@@ -107,6 +107,10 @@ align_audio <- function(clip, narration, sr = 8000L, hop = 80L) {
 #' @return A data frame with one row per chunk: \code{chunk}, \code{file},
 #'   \code{frames}, \code{fps}, \code{offset} (narration seconds),
 #'   \code{correlation}, and \code{overlap} (frames; 0 for the first chunk).
+#' @examples
+#' \dontrun{
+#' align_overlaps(c("media/chunk01.mp4", "media/chunk02.mp4"), "audio.mp3")
+#' }
 #' @export
 align_overlaps <- function(files, narration, fps = 24) {
     n <- length(files)
