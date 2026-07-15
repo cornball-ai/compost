@@ -1,9 +1,11 @@
 Package: compost
-Version: 0.1.0.7
-Title: Video Compositing via FFmpeg
-Description: Wraps common FFmpeg filter_complex patterns (overlay, chromakey,
-    concat, scale, vstack) into clean R functions for video compositing, and
-    lowers an OpenTimelineIO timeline (via rotio) to a rendered video.
+Version: 0.1.0.9
+Title: Video Compositing via 'FFmpeg'
+Description: Wraps common 'FFmpeg' <https://ffmpeg.org/> filter_complex
+    patterns (overlay, chromakey, concat, scale, vstack) into clean R
+    functions for video compositing, and lowers an 'OpenTimelineIO'
+    <https://opentimeline.io/> timeline (via the 'rotio' package) to a
+    rendered video.
 Authors@R: c(
     person("Troy", "Hernandez",
         email = "troy@cornball.ai",
@@ -11,6 +13,8 @@ Authors@R: c(
         comment = c(ORCID = "0009-0005-4248-604X")),
     person("cornball.ai", role = "cph"))
 License: MIT + file LICENSE
+URL: https://github.com/cornball-ai/compost
+BugReports: https://github.com/cornball-ai/compost/issues
 Encoding: UTF-8
 SystemRequirements: ffmpeg (>= 5.0)
 Imports:

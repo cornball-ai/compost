@@ -5,6 +5,13 @@
 \usage{
 .parse_rms(lines)
 }
+\arguments{
+\item{lines}{Character vector of ffmpeg ametadata print output.}
+}
+\value{
+A list with numeric \code{time} (window centre, seconds) and
+  \code{rms} (RMS level in dB).
+}
 \description{
 The print stream alternates a \code{pts_time:<t>} line and an
 \code{RMS_level=<db>} line per window. Digital silence prints \code{-inf},
