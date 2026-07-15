@@ -77,15 +77,33 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
              call. = FALSE)
     }
 
+    # xfade truncates SILENTLY when offset + duration lands past the first
+    # input's end by even float dust, and seconds-based trims lose a frame to
+    # rounding; across several joins the drift compounds and the chain
+    # collapses (a 30s track once rendered 8s of motion, then froze on the
+    # tail pad). So the whole chain runs in frame arithmetic: frame-exact
+    # trims, frame counts in the accumulator, and a quarter-frame safety bias
+    # on every xfade offset.
+    vfps <- .video_fps(videos[1])
+    fadeF <- as.integer(round(fades * vfps))
+
     # Per-input feed: the selected window of the file (or the whole file),
     # normalised (format/timebase) so xfade and concat mix cleanly.
-    feed_dur <- function(i) {
-        if (is.null(windows)) {
-            w <- NULL
-        } else {
-            w <- windows[[i]]
+    win_frames <- function(i) {
+        if (is.null(windows) || is.null(windows[[i]])) {
+            return(NULL)
         }
-        full <- as.numeric(probe(videos[i], "duration"))
+        w <- windows[[i]]
+        c(as.integer(round(w[1] * vfps)),
+          if (is.na(w[2])) NA_integer_ else as.integer(round(w[2] * vfps)))
+    }
+    feed_dur <- function(i) {
+        w <- win_frames(i)
+        full <- suppressWarnings(as.integer(probe(videos[i], "nb_frames")))
+        if (is.na(full)) {
+            full <- as.integer(round(as.numeric(probe(videos[i],
+                        "duration")) * vfps))
+        }
         if (is.null(w)) {
             return(full)
         }
@@ -96,17 +114,14 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
         }
     }
     feed_filter <- function(i) {
-        if (is.null(windows)) {
-            w <- NULL
-        } else {
-            w <- windows[[i]]
-        }
-        trim <- if (is.null(w) || (w[1] <= 0 && is.na(w[2]))) {
+        wf <- win_frames(i)
+        trim <- if (is.null(wf) || (wf[1] <= 0L && is.na(wf[2]))) {
             ""
-        } else if (is.na(w[2])) {
-            sprintf("trim=start=%g,setpts=PTS-STARTPTS,", w[1])
+        } else if (is.na(wf[2])) {
+            sprintf("trim=start_frame=%d,setpts=PTS-STARTPTS,", wf[1])
         } else {
-            sprintf("trim=start=%g:end=%g,setpts=PTS-STARTPTS,", w[1], w[2])
+            sprintf("trim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS,",
+                    wf[1], wf[2])
         }
         sprintf("[%d:v]%sformat=yuv420p,settb=AVTB[n%d]", i - 1L, trim, i - 1L)
     }
@@ -127,32 +142,38 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
             vfilter <- sub("\\[n0\\]$", "[vout]", feed_filter(1))
         }
     } else {
-        durs <- vapply(seq_len(n), feed_dur, numeric(1))
+        durs <- vapply(seq_len(n), feed_dur, integer(1))
         parts <- vapply(seq_len(n), feed_filter, character(1))
         prev <- "[n0]"
         cum <- durs[1]
         for (k in 2:n) {
             j <- k - 1L
-            f <- fades[j]
+            f <- fadeF[j]
             if (k == n) {
                 out_lbl <- "[vout]"
             } else {
                 out_lbl <- sprintf("[vx%d]", k)
             }
-            if (f <= 0) {
+            if (f <= 0L) {
                 parts <- c(parts,
                            sprintf("%s[n%d]concat=n=2:v=1:a=0%s",
                                    prev, k - 1L, out_lbl))
             } else if (isTRUE(cuts[j])) {
                 parts <- c(parts,
-                           sprintf("[n%d]trim=start=%g,setpts=PTS-STARTPTS[ct%d]",
+                           sprintf("[n%d]trim=start_frame=%d,setpts=PTS-STARTPTS[ct%d]",
                                    k - 1L, f, k - 1L),
                            sprintf("%s[ct%d]concat=n=2:v=1:a=0%s",
                                    prev, k - 1L, out_lbl))
             } else {
+                # The dissolve must END on the first input's last frame:
+                # offset + duration past it (by even float dust) makes xfade
+                # truncate the chain silently. The quarter-frame early bias
+                # keeps the boundary strict without moving the blend a
+                # visible amount.
                 parts <- c(parts, sprintf(
-                        "%s[n%d]xfade=transition=%s:duration=%g:offset=%g%s",
-                        prev, k - 1L, transition, f, cum - f, out_lbl))
+                        "%s[n%d]xfade=transition=%s:duration=%.6f:offset=%.6f%s",
+                        prev, k - 1L, transition, f / vfps,
+                        (cum - f - 0.25) / vfps, out_lbl))
             }
             prev <- out_lbl
             cum <- cum + durs[k] - f
@@ -169,7 +190,6 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
         # (last frame held) or cut it to EXACTLY the audio's duration, so the
         # two streams always match.
         adur <- as.numeric(probe(audio, "duration"))
-        vfps <- .video_fps(videos[1])
         n_frames <- as.integer(round(adur * vfps))
         vfilter <- sprintf("%s;[vout]tpad=stop_mode=clone:stop=-1[vfin]",
                            vfilter)
