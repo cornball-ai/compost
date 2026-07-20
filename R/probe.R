@@ -42,10 +42,13 @@ probe <- function(file, field = "duration") {
     val
 }
 
-
 # Video frame rate from ffprobe's "num/den" r_frame_rate.
 .video_fps <- function(file) {
     r <- strsplit(.probe_field(file, "r_frame_rate"), "/", fixed = TRUE)[[1]]
-    den <- if (length(r) > 1L) as.numeric(r[2]) else 1
+    if (length(r) > 1L) {
+        den <- as.numeric(r[2])
+    } else {
+        den <- 1
+    }
     as.numeric(r[1]) / den
 }

@@ -89,7 +89,8 @@ still_clip <- function(image, output, duration, fps = 30, size = NULL,
 #' @param motion Ken Burns spec list (see \code{\link{still_clip}}), or NULL
 #'   for a static clip.
 #' @param n_frames Total output frames.
-#' @param out_w,out_h Output dimensions in pixels.
+#' @param out_w Output width in pixels.
+#' @param out_h Output height in pixels.
 #' @param fps Output frame rate.
 #' @return The zoompan filter string.
 #' @keywords internal
@@ -103,7 +104,11 @@ still_clip <- function(image, output, duration, fps = 30, size = NULL,
         zt <- max(1, .motion_num(motion$zoom_to, 1))
         from <- .motion_xy(motion$from, c(0.5, 0.5))
         to <- .motion_xy(motion$to, from)
-        ease <- if (is.null(motion$ease)) "smooth" else motion$ease
+        if (is.null(motion$ease)) {
+            ease <- "smooth"
+        } else {
+            ease <- motion$ease
+        }
 
         e <- .ease_expr(ease, max(1L, n_frames - 1L))
         z <- .lerp_expr(zf, zt, e)
@@ -113,9 +118,9 @@ still_clip <- function(image, output, duration, fps = 30, size = NULL,
         y <- sprintf("clip((%s)*ih-ih/zoom/2,0,ih-ih/zoom)", ay)
     }
 
-    sprintf("zoompan=z='%s':x='%s':y='%s':d=%d:s=%dx%d:fps=%s",
-            z, x, y, as.integer(n_frames),
-            as.integer(out_w), as.integer(out_h), format(fps))
+    sprintf("zoompan=z='%s':x='%s':y='%s':d=%d:s=%dx%d:fps=%s", z, x, y,
+            as.integer(n_frames), as.integer(out_w), as.integer(out_h),
+            format(fps))
 }
 
 #' Easing expression over the frame counter
@@ -129,15 +134,14 @@ still_clip <- function(image, output, duration, fps = 30, size = NULL,
 #' @keywords internal
 .ease_expr <- function(ease, n1) {
     p <- sprintf("min(on/%d,1)", as.integer(n1))
-    switch(ease,
-           linear = p,
-           smooth = sprintf("pow(%s,2)*(3-2*%s)", p, p),
+    switch(ease, linear = p, smooth = sprintf("pow(%s,2)*(3-2*%s)", p, p),
            stop("still_clip(): unknown ease '", ease, "'", call. = FALSE))
 }
 
 #' Interpolation expression between two values along an easing curve
 #'
-#' @param a,b Start and end values.
+#' @param a Start value.
+#' @param b End value.
 #' @param e Easing expression string.
 #' @return A constant when a == b, else \code{a+(b-a)*e}.
 #' @keywords internal
@@ -190,7 +194,8 @@ still_clip <- function(image, output, duration, fps = 30, size = NULL,
 #' This is what keeps zoompan from stretching a slide: the clip is rendered at
 #' the source's own aspect and letterboxed later.
 #'
-#' @param img_w,img_h Source dimensions in pixels.
+#' @param img_w Source width in pixels.
+#' @param img_h Source height in pixels.
 #' @param framing A framing list with a \code{pad = c(w, h)} element, or NULL.
 #' @return \code{c(width, height)}, both even.
 #' @keywords internal

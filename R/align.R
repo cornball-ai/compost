@@ -54,22 +54,21 @@ align_audio <- function(clip, narration, sr = 8000L, hop = 80L) {
         max_lag <- 0L
     }
     m1 <- e1 - mean(e1)
-    s1 <- sqrt(sum(m1^2))
+    s1 <- sqrt(sum(m1 ^ 2))
     if (s1 == 0) {
         stop("align_audio(): clip audio is silent: ", clip, call. = FALSE)
     }
     cors <- vapply(0:max_lag, function(k) {
         seg <- e0[(k + 1L):(k + length(e1))]
         m0 <- seg - mean(seg)
-        s0 <- sqrt(sum(m0^2))
+        s0 <- sqrt(sum(m0 ^ 2))
         if (s0 == 0) {
             return(0)
         }
         sum(m0 * m1) / (s0 * s1)
     }, numeric(1))
     best <- which.max(cors)
-    structure((best - 1L) * hop / sr,
-              correlation = cors[best], curve = cors)
+    structure((best - 1L) * hop / sr, correlation = cors[best], curve = cors)
 }
 
 # Video frame count: stream metadata when the container carries it (mp4 does),
@@ -80,10 +79,9 @@ align_audio <- function(clip, narration, sr = 8000L, hop = 80L) {
         return(n)
     }
     out <- system2("ffprobe",
-                   shQuote(c("-v", "error", "-count_frames",
-                             "-select_streams", "v",
-                             "-show_entries", "stream=nb_read_frames",
-                             "-of", "csv=p=0", file)),
+                   shQuote(c("-v", "error", "-count_frames", "-select_streams", "v",
+                             "-show_entries", "stream=nb_read_frames", "-of",
+                             "csv=p=0", file)),
                    stdout = TRUE, stderr = FALSE)
     n <- suppressWarnings(as.integer(out[1]))
     if (is.na(n)) {
@@ -125,7 +123,8 @@ align_overlaps <- function(files, narration, fps = 24) {
     if (n > 1L) {
         for (j in 2:n) {
             tail_end <- offset[j - 1L] + frames[j - 1L] / fps
-            overlap[j] <- max(0L, as.integer(round((tail_end - offset[j]) * fps)))
+            overlap[j] <- max(0L,
+                              as.integer(round((tail_end - offset[j]) * fps)))
         }
     }
     data.frame(chunk = seq_len(n), file = basename(files), frames = frames,

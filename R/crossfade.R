@@ -95,14 +95,14 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
         }
         w <- windows[[i]]
         c(as.integer(round(w[1] * vfps)),
-          if (is.na(w[2])) NA_integer_ else as.integer(round(w[2] * vfps)))
+            if (is.na(w[2])) NA_integer_ else as.integer(round(w[2] * vfps)))
     }
     feed_dur <- function(i) {
         w <- win_frames(i)
         full <- suppressWarnings(as.integer(probe(videos[i], "nb_frames")))
         if (is.na(full)) {
             full <- as.integer(round(as.numeric(probe(videos[i],
-                        "duration")) * vfps))
+                            "duration")) * vfps))
         }
         if (is.null(w)) {
             return(full)
@@ -219,4 +219,3 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
     .run_ffmpeg(args)
     invisible(output)
 }
-

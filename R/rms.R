@@ -80,4 +80,3 @@ rms_curve <- function(file, window = 1024L) {
     }
     .parse_rms(readLines(mfile, warn = FALSE))
 }
-

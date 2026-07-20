@@ -196,4 +196,3 @@ zoom <- function(input, output, stt, amount = 0.05, levels = 3,
 
     expr
 }
-

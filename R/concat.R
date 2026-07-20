@@ -40,4 +40,3 @@ concat <- function(inputs, output, overwrite = TRUE, dry_run = FALSE) {
     .run_ffmpeg(args)
     invisible(output)
 }
-

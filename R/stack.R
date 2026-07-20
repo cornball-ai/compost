@@ -121,4 +121,3 @@ hstack <- function(left, right, output, width_left = NULL,
     .run_ffmpeg(args)
     invisible(output)
 }
-

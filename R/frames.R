@@ -47,15 +47,12 @@ frames_clip <- function(dir, output, fps = 30, pattern = "frame_%04d.png",
         if (!is.null(size)) {
             sprintf("scale=%d:%d,", as.integer(size[1]), as.integer(size[2]))
         },
-        "format=yuv420p,setsar=1")
+                 "format=yuv420p,setsar=1")
 
-    args <- c(if (overwrite) "-y",
-              "-framerate", format(fps),
-              "-start_number", as.integer(start),
-              "-i", file.path(dir, pattern),
-              "-vf", vf,
-              "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-              "-movflags", "+faststart",
+    args <- c(if (overwrite) "-y", "-framerate", format(fps),
+              "-start_number", as.integer(start), "-i",
+              file.path(dir, pattern), "-vf", vf, "-c:v", "libx264",
+              "-preset", "fast", "-crf", "18", "-movflags", "+faststart",
               output)
 
     if (dry_run) {

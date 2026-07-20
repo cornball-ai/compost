@@ -35,9 +35,9 @@
 #' }
 #'
 #' @export
-audio_concat <- function(inputs, output, gap = 0, tail = 0, sample_rate = NULL,
-                         channels = NULL, bitrate = NULL, overwrite = TRUE,
-                         dry_run = FALSE) {
+audio_concat <- function(inputs, output, gap = 0, tail = 0,
+                         sample_rate = NULL, channels = NULL, bitrate = NULL,
+                         overwrite = TRUE, dry_run = FALSE) {
     inputs <- normalizePath(inputs, mustWork = TRUE)
     output <- normalizePath(output, mustWork = FALSE)
     n <- length(inputs)
@@ -54,12 +54,9 @@ audio_concat <- function(inputs, output, gap = 0, tail = 0, sample_rate = NULL,
 
     filter <- .audio_concat_filter(n, gap, tail, sample_rate, channels)
 
-    args <- c(if (overwrite) "-y",
-              as.vector(rbind("-i", inputs)),
-              "-filter_complex", filter,
-              "-map", "[aout]",
-        if (!is.null(bitrate)) c("-b:a", bitrate),
-              output)
+    args <- c(if (overwrite) "-y", as.vector(rbind("-i", inputs)),
+              "-filter_complex", filter, "-map", "[aout]",
+        if (!is.null(bitrate)) c("-b:a", bitrate), output)
 
     if (dry_run) {
         return(.run_ffmpeg(args, dry_run = TRUE))
@@ -86,12 +83,11 @@ audio_concat <- function(inputs, output, gap = 0, tail = 0, sample_rate = NULL,
     layout <- switch(as.character(channels),
                      "1" = "mono",
                      "2" = "stereo",
-                     stop("audio_concat(): channels must be 1 or 2",
-                          call. = FALSE))
+                     stop("audio_concat(): channels must be 1 or 2", call. = FALSE))
 
     silence <- function(len, lbl) {
-        sprintf("anullsrc=r=%d:cl=%s,atrim=end=%.6f%s",
-                sample_rate, layout, len, lbl)
+        sprintf("anullsrc=r=%d:cl=%s,atrim=end=%.6f%s", sample_rate, layout,
+                len, lbl)
     }
 
     parts <- character(0)
@@ -99,8 +95,8 @@ audio_concat <- function(inputs, output, gap = 0, tail = 0, sample_rate = NULL,
     for (i in seq_len(n)) {
         lbl <- sprintf("[c%d]", i - 1L)
         parts <- c(parts, sprintf(
-                "[%d:a]aresample=%d,aformat=sample_fmts=fltp:channel_layouts=%s%s",
-                i - 1L, sample_rate, layout, lbl))
+                                  "[%d:a]aresample=%d,aformat=sample_fmts=fltp:channel_layouts=%s%s",
+                                  i - 1L, sample_rate, layout, lbl))
         labels <- c(labels, lbl)
         if (gap > 0 && i < n) {
             glbl <- sprintf("[g%d]", i)

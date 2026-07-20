@@ -51,4 +51,3 @@ audio_convert <- function(input, output, sample_rate = NULL, channels = NULL,
     .run_ffmpeg(args)
     invisible(output)
 }
-

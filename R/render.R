@@ -376,4 +376,3 @@ render_timeline <- function(timeline, output, media_dir = NULL,
     .run_ffmpeg(args)
     invisible(output)
 }
-
