@@ -202,6 +202,99 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
     unlink(c(master2, a, b, outv))
 }
 
+# --- layout lowering: degradation paths --------------------------------------
+
+lay_v <- list(schema = 1L, name = "vertical", canvas = c(1080L, 1920L),
+              slots = list(
+                  narrator = list(rect = c(0L, 0L, 1080L, 960L),
+                                  fit = "fill"),
+                  visual = list(rect = c(0L, 960L, 1080L, 960L),
+                                fit = "fit")))
+ldir <- tempfile("laydeg")
+dir.create(ldir)
+lv <- file.path(ldir, "v.mp4")
+file.create(lv)
+
+# A layout whose narrator slot has no track: warns, single-stream render.
+tl_l1 <- Timeline("lay1")
+metadata(tl_l1) <- list(cornball = list(layout = lay_v))
+vt1 <- Track("V1", kind = "Video")
+metadata(vt1) <- list(cornball = list(role = "visual"))
+append_child(vt1, Clip("c", ExternalReference(lv)))
+append_child(tracks(tl_l1), vt1)
+expect_warning(
+        cmd_l1 <- render_timeline(tl_l1, file.path(ldir, "o1.mp4"),
+                                  media_dir = ldir, dry_run = TRUE),
+        "no matching track")
+expect_true(grepl("^ffmpeg", cmd_l1))
+
+# A roled track without any layout: warns, track ignored, content renders.
+tl_l2 <- Timeline("lay2")
+vt2 <- Track("V1", kind = "Video")
+append_child(vt2, Clip("c", ExternalReference(lv)))
+nt2 <- Track("narrator", kind = "Video")
+metadata(nt2) <- list(cornball = list(role = "narrator"))
+append_child(nt2, Clip("n", ExternalReference(lv)))
+append_child(tracks(tl_l2), vt2)
+append_child(tracks(tl_l2), nt2)
+expect_warning(
+        cmd_l2 <- render_timeline(tl_l2, file.path(ldir, "o2.mp4"),
+                                  media_dir = ldir, dry_run = TRUE),
+        "no layout slot")
+expect_true(grepl("^ffmpeg", cmd_l2))
+
+unlink(ldir, recursive = TRUE)
+
+# --- layout lowering: full compose (at_home) ---------------------------------
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    ldir <- tempfile("layfull")
+    dir.create(ldir)
+    mklv <- function(name, col, secs, rate) {
+        f <- file.path(ldir, name)
+        system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi", "-i",
+                                    sprintf("color=c=%s:s=640x360:d=%d:r=%d",
+                                            col, secs, rate),
+                                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                                    f)), stdout = FALSE, stderr = FALSE)
+        f
+    }
+    lvis <- mklv("vis.mp4", "blue", 3, 30)
+    lnar <- mklv("nar.mp4", "red", 2, 24)
+    lbed <- file.path(ldir, "bed.mp3")
+    system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi", "-i",
+                                "sine=frequency=440:duration=4", "-ar",
+                                "48000", "-ac", "1", lbed)),
+            stdout = FALSE, stderr = FALSE)
+
+    tl_l3 <- Timeline("lay3")
+    metadata(tl_l3) <- list(cornball = list(layout = lay_v))
+    vt3 <- Track("V1", kind = "Video")
+    metadata(vt3) <- list(cornball = list(role = "visual"))
+    append_child(vt3, Clip("c", ExternalReference(lvis),
+                           source_range = TimeRange(RationalTime(0, 30),
+                                                    RationalTime(90, 30))))
+    nt3 <- Track("narrator", kind = "Video")
+    metadata(nt3) <- list(cornball = list(role = "narrator"))
+    append_child(nt3, Clip("n", ExternalReference(lnar)))
+    at3 <- Track("A1", kind = "Audio")
+    append_child(at3, Clip("audio", ExternalReference(lbed),
+                           source_range = TimeRange(RationalTime(0, 30),
+                                                    RationalTime(120, 30))))
+    append_child(tracks(tl_l3), vt3)
+    append_child(tracks(tl_l3), nt3)
+    append_child(tracks(tl_l3), at3)
+
+    outl <- file.path(ldir, "out.mp4")
+    render_timeline(tl_l3, outl)
+    expect_equal(probe(outl, "width"), 1080)
+    expect_equal(probe(outl, "height"), 1920)
+    adur3 <- as.numeric(probe(lbed, "duration"))
+    expect_equal(as.integer(probe(outl, "nb_frames")),
+                 as.integer(round(adur3 * 30)))
+
+    unlink(ldir, recursive = TRUE)
+}
+
 # --- still + effect + sequence lowering (at_home: real ffmpeg) ---------------
 if (at_home() && nzchar(Sys.which("ffmpeg"))) {
     dirS <- tempfile("slides")

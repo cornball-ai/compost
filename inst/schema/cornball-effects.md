@@ -60,3 +60,8 @@ A missing `schema` is read as 1.
 
 `cornball.callout` (timed box/underline overlays) is reserved for a future
 schema; renderers that don't know it degrade as above.
+
+## See also
+
+`cornball-layout.md` — the timeline-level layout contract (multi-track
+canvas composition: narrator over slides, stacks, over-shoulder boxes).
