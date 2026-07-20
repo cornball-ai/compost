@@ -1,5 +1,5 @@
 Package: compost
-Version: 0.1.0.9
+Version: 0.1.0.10
 Title: Video Compositing via 'FFmpeg'
 Description: Wraps common 'FFmpeg' <https://ffmpeg.org/> filter_complex
     patterns (overlay, chromakey, concat, scale, vstack) into clean R
