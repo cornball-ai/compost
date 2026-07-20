@@ -72,7 +72,7 @@ compose_layout <- function(sources, output, layout,
     n_frames <- suppressWarnings(as.integer(probe(ref_file, "nb_frames")))
     if (is.na(n_frames)) {
         n_frames <- as.integer(round(as.numeric(
-                probe(ref_file, "duration")) * fps))
+                    probe(ref_file, "duration")) * fps))
     }
 
     # Inputs in slot (paint) order; the filter references them by index.
@@ -124,8 +124,7 @@ compose_layout <- function(sources, output, layout,
     canvas <- as.integer(unlist(layout$canvas))
     if (length(canvas) != 2L || anyNA(canvas) || any(canvas <= 0L) ||
         any(canvas %% 2L != 0L)) {
-        stop("layout canvas must be two positive even integers",
-             call. = FALSE)
+        stop("layout canvas must be two positive even integers", call. = FALSE)
     }
     slots <- layout$slots
     if (is.null(names(slots)) || any(names(slots) == "")) {
@@ -141,7 +140,7 @@ compose_layout <- function(sources, output, layout,
             stop("layout slot sizes must be positive and even", call. = FALSE)
         }
         if (rect[1] < 0L || rect[2] < 0L ||
-            rect[1] + rect[3] > canvas[1] || rect[2] + rect[4] > canvas[2]) {
+                    rect[1] + rect[3] > canvas[1] || rect[2] + rect[4] > canvas[2]) {
             stop("layout slot rect out of canvas bounds", call. = FALSE)
         }
         fit <- if (is.null(s$fit)) "fit" else as.character(s$fit)
@@ -182,7 +181,7 @@ compose_layout <- function(sources, output, layout,
     }
     sprintf("[%d:v]fps=%s,%s,setsar=1,format=yuv420p,settb=AVTB%s%s",
             i, format(fps), scale,
-            if (freeze) ",tpad=stop_mode=clone:stop=-1" else "",
+        if (freeze) ",tpad=stop_mode=clone:stop=-1" else "",
             lbl)
 }
 
@@ -201,8 +200,8 @@ compose_layout <- function(sources, output, layout,
 .layout_filter <- function(slots, fps, reference) {
     canvas <- slots$canvas
     nms <- names(slots$slots)
-    parts <- sprintf("color=c=black:s=%dx%d:r=%s,settb=AVTB[cv]",
-                     canvas[1], canvas[2], format(fps))
+    parts <- sprintf("color=c=black:s=%dx%d:r=%s,settb=AVTB[cv]", canvas[1],
+                     canvas[2], format(fps))
     for (i in seq_along(nms)) {
         s <- slots$slots[[i]]
         parts <- c(parts, .slot_chain(i - 1L, s$rect, s$fit, fps,
@@ -211,7 +210,11 @@ compose_layout <- function(sources, output, layout,
     }
     prev <- "[cv]"
     for (i in seq_along(nms)) {
-        out <- if (i == length(nms)) "[vout]" else sprintf("[t%d]", i)
+        if (i == length(nms)) {
+            out <- "[vout]"
+        } else {
+            out <- sprintf("[t%d]", i)
+        }
         parts <- c(parts, sprintf("%s[s%d]overlay=%d:%d%s", prev, i,
                                   slots$slots[[i]]$rect[1],
                                   slots$slots[[i]]$rect[2], out))

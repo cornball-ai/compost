@@ -18,9 +18,9 @@ the timeline file's directory when \code{timeline} is a path, otherwise NULL
 \item{overwrite}{If TRUE (default), overwrite the output file.}
 
 \item{dry_run}{If TRUE, return the ffmpeg command string without executing.
-Note: concatenation of multiple video clips and still/sequence
-pre-renders still run, since they produce intermediates the final
-command depends on.}
+Note: concatenation of multiple video clips, still/sequence
+pre-renders, and layout composition still run, since they produce
+intermediates the final command depends on.}
 }
 \value{
 Invisibly returns the output path. If dry_run, returns the command
@@ -52,6 +52,17 @@ clips are pre-rendered via \code{\link{frames_clip}} at the reference's
 rate; motion effects are not applied to sequences. Effects the renderer
 cannot honor degrade to a static clip with a warning; effects outside the
 \code{cornball.} namespace are ignored silently.
+
+When the timeline carries \code{metadata$cornball$layout} (schema in
+\code{system.file("schema", "cornball-layout.md", package = "compost")}),
+tracks whose \code{cornball$role} matches a layout slot are each assembled
+like the content track and composed onto the canvas via
+\code{\link{compose_layout}} -- muted, painted in slot order, with the
+content track bound to the \code{visual} slot as the timing reference.
+The framing transform is suppressed when composing (the layout defines
+the canvas). A layout the renderer cannot honor -- schema too new, a
+slot's track missing, or a roled track without a slot -- degrades to the
+plain single-stream render with one warning.
 
 Caption tracks are identified by \code{metadata$cornball$role == "caption"} or
 a name containing "caption". When the primary video track has a single clip

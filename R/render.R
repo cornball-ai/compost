@@ -31,6 +31,7 @@
 }
 
 #' A track's cornball role ("" when untagged)
+#' @param track A rotio Track.
 #' @keywords internal
 .track_role <- function(track) {
     role <- tryCatch(rotio::metadata(track)$cornball$role,
@@ -42,6 +43,7 @@
 }
 
 #' The timeline's cornball layout metadata, or NULL
+#' @param timeline A rotio Timeline.
 #' @keywords internal
 .timeline_layout <- function(timeline) {
     tryCatch(rotio::metadata(timeline)$cornball$layout,
