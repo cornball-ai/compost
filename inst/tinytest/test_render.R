@@ -78,6 +78,74 @@ empty <- Timeline("empty")
 expect_error(render_timeline(empty, file.path(dir, "out.mp4"), dry_run = TRUE),
              "no video track")
 
+# --- .motion_from_effects: the cornball.* namespace --------------------------
+
+# The real deserialized shape: a clip's effect round-tripped through JSON.
+kb <- Effect("motion", "cornball.kenburns",
+             metadata = list(schema = 1L, zoom_from = 1, zoom_to = 1.15,
+                             from = c(0.5, 0.5), to = c(0.5, 0.4),
+                             ease = "smooth"))
+cl <- Clip("s", ExternalReference("s.png"),
+           source_range = TimeRange(RationalTime(0, 30), RationalTime(60, 30)))
+cl <- add_effect(cl, kb)
+cl2 <- from_json_string(to_json_string(cl))
+m <- compost:::.motion_from_effects(effects(cl2))
+expect_false(is.null(m))
+expect_equal(as.numeric(unlist(m$zoom_to)), 1.15)
+# ...and the filter builder digests that shape directly.
+fkb <- compost:::.kenburns_filter(m, 60L, 1080L, 1920L, 30)
+expect_true(grepl("0.150000", fkb, fixed = TRUE))
+
+# Foreign namespaces are ignored silently.
+expect_silent(compost:::.motion_from_effects(
+        list(Effect("blur", "SomeVendor.GaussianBlur",
+                    metadata = list(size = 4)))))
+expect_null(compost:::.motion_from_effects(
+        list(Effect("blur", "SomeVendor.GaussianBlur"))))
+
+# Unknown cornball.* warns and degrades to static.
+expect_warning(
+        v <- compost:::.motion_from_effects(
+                list(Effect("x", "cornball.wobble"))),
+        "unrecognized")
+expect_null(v)
+
+# Disabled effects warn and are skipped.
+expect_warning(
+        v <- compost:::.motion_from_effects(
+                list(Effect("m", "cornball.kenburns", enabled = FALSE))),
+        "disabled")
+expect_null(v)
+
+# A schema newer than supported warns and degrades.
+expect_warning(
+        v <- compost:::.motion_from_effects(
+                list(Effect("m", "cornball.kenburns",
+                            metadata = list(schema = 2L)))),
+        "schema")
+expect_null(v)
+
+# First usable motion wins; extras warn.
+expect_warning(
+        v <- compost:::.motion_from_effects(list(
+                Effect("a", "cornball.kenburns",
+                       metadata = list(schema = 1L, zoom_to = 1.1)),
+                Effect("b", "cornball.kenburns",
+                       metadata = list(schema = 1L, zoom_to = 1.9)))),
+        "first")
+expect_equal(as.numeric(unlist(v$zoom_to)), 1.1)
+
+# --- still clips need a source_range -----------------------------------------
+
+fake_png <- file.path(dir, "slide.png")
+file.create(fake_png)
+tl_nosr <- Timeline("nosr")
+v_nosr <- Track("V1", kind = "Video")
+append_child(v_nosr, Clip("s1", ExternalReference(fake_png)))
+append_child(tracks(tl_nosr), v_nosr)
+expect_error(render_timeline(tl_nosr, file.path(dir, "o.mp4"), dry_run = TRUE),
+             "source_range")
+
 # --- Transition lowering (at_home: real ffmpeg fixtures) ----------------------
 if (at_home() && nzchar(Sys.which("ffmpeg"))) {
     master2 <- tempfile(fileext = ".mp4")
@@ -132,4 +200,85 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
                  pattern = "out_offset")
 
     unlink(c(master2, a, b, outv))
+}
+
+# --- still + effect + sequence lowering (at_home: real ffmpeg) ---------------
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    dirS <- tempfile("slides")
+    dir.create(dirS)
+    mkpng <- function(name, col) {
+        f <- file.path(dirS, name)
+        system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi", "-i",
+                                    sprintf("color=c=%s:s=320x240", col),
+                                    "-frames:v", "1", f)),
+                stdout = FALSE, stderr = FALSE)
+        f
+    }
+    png1 <- mkpng("s1.png", "red")
+    png2 <- mkpng("s2.png", "blue")
+    bed <- file.path(dirS, "bed.mp3")
+    system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi", "-i",
+                                "sine=frequency=440:duration=4", "-ar",
+                                "48000", "-ac", "1", bed)),
+            stdout = FALSE, stderr = FALSE)
+
+    # Two 2s slide clips at 30fps; the second turns over a 6-frame dissolve
+    # riding its head handle; the first carries a Ken Burns effect. The audio
+    # bed is the ground truth for the output length.
+    tls <- Timeline("slides")
+    metadata(tls) <- list(cornball = list(framing = list(
+        scale = 240, pad = c(240, 240), pos = c("(ow-iw)/2", "(oh-ih)/2"))))
+    vs <- Track("V1", kind = "Video")
+    c1 <- Clip("s1", ExternalReference(png1),
+               source_range = TimeRange(RationalTime(0, 30),
+                                        RationalTime(60, 30)))
+    c1 <- add_effect(c1, Effect("motion", "cornball.kenburns",
+                                metadata = list(schema = 1L, zoom_from = 1,
+                                                zoom_to = 1.2,
+                                                from = c(0.5, 0.5),
+                                                to = c(0.4, 0.4))))
+    append_child(vs, c1)
+    append_child(vs, Transition(name = "turn", transition_type = "SMPTE_Dissolve",
+                                in_offset = RationalTime(6, 30),
+                                out_offset = RationalTime(0, 30)))
+    append_child(vs, Clip("s2", ExternalReference(png2),
+                          source_range = TimeRange(RationalTime(6, 30),
+                                                   RationalTime(60, 30))))
+    as_ <- Track("A1", kind = "Audio")
+    append_child(as_, Clip("audio", ExternalReference(bed),
+                           source_range = TimeRange(RationalTime(0, 30),
+                                                    RationalTime(120, 30))))
+    append_child(tracks(tls), vs)
+    append_child(tracks(tls), as_)
+
+    outs <- file.path(dirS, "slides.mp4")
+    render_timeline(tls, outs)
+    # Video padded/cut to exactly the bed's duration at 30fps (the mp3
+    # container reports encoder padding beyond the 4s sine, so derive the
+    # expectation from the probe rather than assuming 120), framed to the box.
+    adur <- as.numeric(probe(bed, "duration"))
+    expect_equal(as.integer(probe(outs, "nb_frames")),
+                 as.integer(round(adur * 30)))
+    expect_equal(probe(outs, "width"), 240)
+    expect_equal(probe(outs, "height"), 240)
+
+    # An ImageSequenceReference clip lowers through frames_clip().
+    dirF <- file.path(dirS, "seq")
+    dir.create(dirF)
+    system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi", "-i",
+                                "testsrc2=size=320x240:rate=30", "-frames:v",
+                                "10", file.path(dirF, "frame_%04d.png"))),
+            stdout = FALSE, stderr = FALSE)
+    tli <- Timeline("scene")
+    vi <- Track("V1", kind = "Video")
+    append_child(vi, Clip("sc", ImageSequenceReference(
+            target_url_base = dirF, name_prefix = "frame_",
+            name_suffix = ".png", start_frame = 1L, rate = 30,
+            frame_zero_padding = 4L)))
+    append_child(tracks(tli), vi)
+    outi <- file.path(dirS, "scene.mp4")
+    render_timeline(tli, outi)
+    expect_equal(as.integer(probe(outi, "nb_frames")), 10L)
+
+    unlink(dirS, recursive = TRUE)
 }
