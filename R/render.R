@@ -9,7 +9,9 @@
 # carried in `metadata$cornball$framing`. Still-image and ImageSequenceReference
 # clips are pre-rendered into video via still_clip()/frames_clip(), honoring
 # the `cornball.*` motion-effect namespace (inst/schema/cornball-effects.md).
-# Stacks and overlapping layers are not lowered yet.
+# Roled tracks (narrator, ...) compose onto a canvas per the cornball layout
+# contract (inst/schema/cornball-layout.md) via compose_layout(). Arbitrary
+# stacks and overlapping layers beyond that are not lowered.
 
 #' Is this track a caption track?
 #'
@@ -26,6 +28,26 @@
         return(TRUE)
     }
     grepl("caption", rotio::name(track), ignore.case = TRUE)
+}
+
+#' A track's cornball role ("" when untagged)
+#' @param track A rotio Track.
+#' @keywords internal
+.track_role <- function(track) {
+    role <- tryCatch(rotio::metadata(track)$cornball$role,
+                     error = function(e) NULL)
+    if (is.null(role)) {
+        return("")
+    }
+    as.character(role)
+}
+
+#' The timeline's cornball layout metadata, or NULL
+#' @param timeline A rotio Timeline.
+#' @keywords internal
+.timeline_layout <- function(timeline) {
+    tryCatch(rotio::metadata(timeline)$cornball$layout,
+             error = function(e) NULL)
 }
 
 #' Resolve a media reference url against an optional base directory
@@ -380,6 +402,43 @@
     NULL
 }
 
+#' Assemble one video track into a single renderable file
+#'
+#' The track walk + still/sequence pre-render + passthrough/concat/crossfade
+#' pipeline, shared by the content track and layout slot tracks.
+#'
+#' @param track A rotio video Track.
+#' @param media_dir Base directory for relative urls, or NULL.
+#' @param framing Framing for still rastering (NULL for slot tracks).
+#' @return list(file, temps), or NULL when the track has no clips.
+#' @keywords internal
+.assemble_track <- function(track, media_dir, framing) {
+    seq_v <- .video_sequence(track, media_dir)
+    if (length(seq_v$files) == 0) {
+        return(NULL)
+    }
+    pre <- .prerender_sources(seq_v, framing, media_dir)
+    temps <- pre$temps
+    vclips <- normalizePath(pre$files, mustWork = TRUE)
+    trivial <- all(seq_v$fades == 0) &&
+    all(vapply(seq_v$windows, is.null, logical(1)))
+    if (length(vclips) == 1 && trivial) {
+        file <- vclips[[1]]
+    } else if (trivial) {
+        # Whole files, butt joins: stream-copy concat beats filtering.
+        file <- tempfile(fileext = ".mp4")
+        temps <- c(temps, file)
+        concat(vclips, file, overwrite = TRUE)
+    } else {
+        file <- tempfile(fileext = ".mp4")
+        temps <- c(temps, file)
+        crossfade_concat(vclips, file,
+                         fade = if (length(seq_v$fades)) seq_v$fades else 0,
+                         windows = seq_v$windows, overwrite = TRUE)
+    }
+    list(file = file, temps = temps)
+}
+
 #' Render an OTIO Timeline to a Video File
 #'
 #' Lowers a rotio (OpenTimelineIO) Timeline to a single ffmpeg invocation and
@@ -407,6 +466,17 @@
 #' cannot honor degrade to a static clip with a warning; effects outside the
 #' \code{cornball.} namespace are ignored silently.
 #'
+#' When the timeline carries \code{metadata$cornball$layout} (schema in
+#' \code{system.file("schema", "cornball-layout.md", package = "compost")}),
+#' tracks whose \code{cornball$role} matches a layout slot are each assembled
+#' like the content track and composed onto the canvas via
+#' \code{\link{compose_layout}} -- muted, painted in slot order, with the
+#' content track bound to the \code{visual} slot as the timing reference.
+#' The framing transform is suppressed when composing (the layout defines
+#' the canvas). A layout the renderer cannot honor -- schema too new, a
+#' slot's track missing, or a roled track without a slot -- degrades to the
+#' plain single-stream render with one warning.
+#'
 #' Caption tracks are identified by \code{metadata$cornball$role == "caption"} or
 #' a name containing "caption". When the primary video track has a single clip
 #' that already carries its own audio (the talking-head case), no separate audio
@@ -419,9 +489,9 @@
 #'   (urls used as-is).
 #' @param overwrite If TRUE (default), overwrite the output file.
 #' @param dry_run If TRUE, return the ffmpeg command string without executing.
-#'   Note: concatenation of multiple video clips and still/sequence
-#'   pre-renders still run, since they produce intermediates the final
-#'   command depends on.
+#'   Note: concatenation of multiple video clips, still/sequence
+#'   pre-renders, and layout composition still run, since they produce
+#'   intermediates the final command depends on.
 #'
 #' @return Invisibly returns the output path. If dry_run, returns the command
 #'   string for the final render pass.
@@ -445,49 +515,91 @@ render_timeline <- function(timeline, output, media_dir = NULL,
 
     output <- normalizePath(output, mustWork = FALSE)
 
-    # Partition the Video-kind tracks into captions and real video.
+    # Partition the Video-kind tracks: captions, layout slot tracks (role
+    # matching a layout slot other than "visual"), and content.
     vk_tracks <- rotio::video_tracks(timeline)
     is_cap <- vapply(vk_tracks, .is_caption_track, logical(1))
-    vtracks <- vk_tracks[!is_cap]
     ctracks <- vk_tracks[is_cap]
+    vtracks <- vk_tracks[!is_cap]
     atracks <- rotio::audio_tracks(timeline)
+
+    layout <- .timeline_layout(timeline)
+    if (!is.null(layout) && is.null(.layout_slots(layout))) {
+        layout <- NULL # schema too new: warned inside, degrade to slides-only
+    }
+    slot_names <- if (is.null(layout)) {
+        character(0)
+    } else {
+        setdiff(names(layout$slots), "visual")
+    }
+    roles <- vapply(vtracks, .track_role, character(1))
+    in_slot <- roles %in% slot_names
+    stray <- !(roles %in% c("", "visual")) & !in_slot
+    if (any(stray)) {
+        warning("render_timeline(): track role(s) ",
+                paste(unique(roles[stray]), collapse = ", "),
+                " have no layout slot; ignoring those tracks", call. = FALSE)
+    }
+    slot_tracks <- vtracks[in_slot]
+    names(slot_tracks) <- roles[in_slot]
+    vtracks <- vtracks[!in_slot & !stray]
 
     if (length(vtracks) == 0) {
         stop("render_timeline(): no video track found", call. = FALSE)
-    }
-
-    # Video items from the first video track: clips with their source windows
-    # and the Transitions joining them.
-    seq_v <- .video_sequence(vtracks[[1]], media_dir)
-    if (length(seq_v$files) == 0) {
-        stop("render_timeline(): the video track has no clips", call. = FALSE)
     }
 
     # Framing is resolved before pre-rendering: still clips are rastered to
     # their source aspect fitted inside the framing box.
     framing <- .timeline_framing(vtracks[[1]], timeline)
 
-    pre <- .prerender_sources(seq_v, framing, media_dir)
-    if (length(pre$temps) > 0) {
-        on.exit(unlink(pre$temps), add = TRUE)
+    base <- .assemble_track(vtracks[[1]], media_dir, framing)
+    if (is.null(base)) {
+        stop("render_timeline(): the video track has no clips", call. = FALSE)
     }
-    vclips <- normalizePath(pre$files, mustWork = TRUE)
+    if (length(base$temps) > 0) {
+        on.exit(unlink(base$temps), add = TRUE)
+    }
+    base_video <- base$file
 
-    trivial <- all(seq_v$fades == 0) &&
-    all(vapply(seq_v$windows, is.null, logical(1)))
-    if (length(vclips) == 1 && trivial) {
-        base_video <- vclips[[1]]
-    } else if (trivial) {
-        # Whole files, butt joins: stream-copy concat is cheaper than filtering.
-        base_video <- tempfile(fileext = ".mp4")
-        on.exit(unlink(base_video), add = TRUE)
-        concat(vclips, base_video, overwrite = TRUE)
-    } else {
-        base_video <- tempfile(fileext = ".mp4")
-        on.exit(unlink(base_video), add = TRUE)
-        crossfade_concat(vclips, base_video,
-                         fade = if (length(seq_v$fades)) seq_v$fades else 0,
-                         windows = seq_v$windows, overwrite = TRUE)
+    # Layout composition: paint the content and each slot track onto the
+    # canvas. The composed base is video-only, so the narration-bed mapping
+    # below stays authoritative. Framing is suppressed afterwards (the
+    # layout defines the canvas); it was already consumed above for still
+    # rastering, so slides keep their full-quality raster and the compose
+    # downscales into the slot.
+    if (!is.null(layout) && length(slot_names) > 0) {
+        lost <- setdiff(slot_names, names(slot_tracks))
+        ok <- length(lost) == 0
+        if (!ok) {
+            warning("render_timeline(): layout slot(s) ",
+                    paste(lost, collapse = ", "),
+                    " have no matching track; rendering without composition",
+                    call. = FALSE)
+        }
+        srcs <- list(visual = base_video)
+        if (ok) {
+            for (nm in slot_names) {
+                st <- .assemble_track(slot_tracks[[nm]], media_dir, NULL)
+                if (is.null(st)) {
+                    warning("render_timeline(): slot track '", nm,
+                            "' has no clips; rendering without composition",
+                            call. = FALSE)
+                    ok <- FALSE
+                    break
+                }
+                if (length(st$temps) > 0) {
+                    on.exit(unlink(st$temps), add = TRUE)
+                }
+                srcs[[nm]] <- st$file
+            }
+        }
+        if (ok) {
+            composed <- tempfile(fileext = ".mp4")
+            on.exit(unlink(composed), add = TRUE)
+            compose_layout(srcs, composed, layout, reference = "visual")
+            base_video <- composed
+            framing <- NULL
+        }
     }
 
     # Framing (scale + pad) and an optional caption burn share one filter chain.
