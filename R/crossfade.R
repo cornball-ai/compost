@@ -84,7 +84,13 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
     # tail pad). So the whole chain runs in frame arithmetic: frame-exact
     # trims, frame counts in the accumulator, and a quarter-frame safety bias
     # on every xfade offset.
-    vfps <- .video_fps(videos[1])
+    # Probed lazily: the single-clip passthrough (no windows, no audio) needs
+    # no fps, which keeps dry_run usable on files that don't exist yet.
+    vfps <- if (n > 1L || !is.null(windows) || !is.null(audio)) {
+        .video_fps(videos[1])
+    } else {
+        NA_real_
+    }
     fadeF <- as.integer(round(fades * vfps))
 
     # Per-input feed: the selected window of the file (or the whole file),
@@ -95,14 +101,14 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
         }
         w <- windows[[i]]
         c(as.integer(round(w[1] * vfps)),
-          if (is.na(w[2])) NA_integer_ else as.integer(round(w[2] * vfps)))
+            if (is.na(w[2])) NA_integer_ else as.integer(round(w[2] * vfps)))
     }
     feed_dur <- function(i) {
         w <- win_frames(i)
         full <- suppressWarnings(as.integer(probe(videos[i], "nb_frames")))
         if (is.na(full)) {
             full <- as.integer(round(as.numeric(probe(videos[i],
-                        "duration")) * vfps))
+                            "duration")) * vfps))
         }
         if (is.null(w)) {
             return(full)
@@ -219,4 +225,3 @@ crossfade_concat <- function(videos, output, fade = 0.375, audio = NULL,
     .run_ffmpeg(args)
     invisible(output)
 }
-

@@ -249,4 +249,3 @@ colorkey <- function(input, output, color = "auto", similarity = 0.15,
     }
     sprintf("0x%02X%02X%02X", rgb[1], rgb[2], rgb[3])
 }
-

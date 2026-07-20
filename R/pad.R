@@ -46,4 +46,3 @@ pad <- function(input, output, width, height, fit_width = width,
     .run_ffmpeg(args)
     invisible(output)
 }
-

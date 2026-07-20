@@ -89,4 +89,3 @@
 .is_image <- function(path) {
     grepl("\\.(png|jpe?g|webp|bmp|tiff?)$", path, ignore.case = TRUE)
 }
-

@@ -33,4 +33,3 @@ frame_export <- function(input, time, output, overwrite = TRUE,
     .run_ffmpeg(args)
     invisible(output)
 }
-

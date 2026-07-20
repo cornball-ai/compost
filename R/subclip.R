@@ -52,4 +52,3 @@ subclip <- function(input, output, start = 0, duration = NULL, end = NULL,
     .run_ffmpeg(args)
     invisible(output)
 }
-
