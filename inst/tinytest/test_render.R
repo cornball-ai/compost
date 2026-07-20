@@ -253,8 +253,12 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
 
     outs <- file.path(dirS, "slides.mp4")
     render_timeline(tls, outs)
-    # Video padded/cut to exactly the 4s bed at 30fps, framed to the pad box.
-    expect_equal(as.integer(probe(outs, "nb_frames")), 120L)
+    # Video padded/cut to exactly the bed's duration at 30fps (the mp3
+    # container reports encoder padding beyond the 4s sine, so derive the
+    # expectation from the probe rather than assuming 120), framed to the box.
+    adur <- as.numeric(probe(bed, "duration"))
+    expect_equal(as.integer(probe(outs, "nb_frames")),
+                 as.integer(round(adur * 30)))
     expect_equal(probe(outs, "width"), 240)
     expect_equal(probe(outs, "height"), 240)
 

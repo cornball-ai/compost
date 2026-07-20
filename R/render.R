@@ -230,15 +230,19 @@
         if (inherits(mr, "ImageSequenceReference")) {
             zp <- as.integer(mr$frame_zero_padding)
             pattern <- paste0(mr$name_prefix,
-                              if (!is.na(zp) && zp > 0) {
-                                  sprintf("%%0%dd", zp)
-                              } else {
-                                  "%d"
-                              },
+                if (!is.na(zp) && zp > 0) {
+                    sprintf("%%0%dd", zp)
+                } else {
+                    "%d"
+                },
                               mr$name_suffix)
             fps <- as.numeric(mr$rate)
             if (!isTRUE(fps > 0)) {
-                fps <- if (is.null(sr)) 30 else rotio::rate(sr$duration)
+                if (is.null(sr)) {
+                    fps <- 30
+                } else {
+                    fps <- rotio::rate(sr$duration)
+                }
             }
             tmp <- tempfile(fileext = ".mp4")
             frames_clip(.resolve_media(mr$target_url_base, media_dir), tmp,
@@ -269,7 +273,7 @@
         size <- .still_size(as.integer(probe(img, "width")),
                             as.integer(probe(img, "height")), framing)
         motion <- .motion_from_effects(
-            tryCatch(rotio::effects(clip), error = function(e) list()))
+                                       tryCatch(rotio::effects(clip), error = function(e) list()))
         tmp <- tempfile(fileext = ".mp4")
         still_clip(img, tmp, duration = dur, fps = fps, size = size,
                    motion = motion)

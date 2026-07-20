@@ -11,7 +11,9 @@
 \item{media_dir}{Base directory for relative urls, or NULL.}
 }
 \value{
-list(files, windows, fades).
+list(files, windows, fades, clips). A Clip over an
+  ImageSequenceReference contributes an NA file, filled in by
+  \code{.prerender_sources()}.
 }
 \description{
 Returns the clips' resolved files, per-clip source windows (the media to

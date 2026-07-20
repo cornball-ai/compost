@@ -18,8 +18,9 @@ the timeline file's directory when \code{timeline} is a path, otherwise NULL
 \item{overwrite}{If TRUE (default), overwrite the output file.}
 
 \item{dry_run}{If TRUE, return the ffmpeg command string without executing.
-Note: concatenation of multiple video clips still runs, since it produces an
-intermediate the final command depends on.}
+Note: concatenation of multiple video clips and still/sequence
+pre-renders still run, since they produce intermediates the final
+command depends on.}
 }
 \value{
 Invisibly returns the output path. If dry_run, returns the command
@@ -40,6 +41,17 @@ before its source range -- for chained generation, the conditioning-head
 replay). Only transitions with \code{out_offset == 0} are lowered (the
 cornductor bundle shape: the outgoing clip has no tail handle). Gaps and
 overlapping layers are not lowered yet.
+
+Still-image clips (a media reference targeting a \code{.png}/\code{.jpg}/
+...) are pre-rendered into video via \code{\link{still_clip}} at the
+source_range's rate, honoring \code{cornball.*} motion effects on the clip
+(Ken Burns pan/zoom; the schema lives in
+\code{system.file("schema", "cornball-effects.md", package = "compost")}).
+A still-image clip must carry a source_range. \code{ImageSequenceReference}
+clips are pre-rendered via \code{\link{frames_clip}} at the reference's
+rate; motion effects are not applied to sequences. Effects the renderer
+cannot honor degrade to a static clip with a warning; effects outside the
+\code{cornball.} namespace are ignored silently.
 
 Caption tracks are identified by \code{metadata$cornball$role == "caption"} or
 a name containing "caption". When the primary video track has a single clip
