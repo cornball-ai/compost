@@ -42,6 +42,14 @@ A few patterns hold across the API:
 | `vstack()` | Stack two videos vertically |
 | `pad()` | Scale to fit and pad onto a canvas |
 | `zoom()` | Stepped zoom that changes level at STT line boundaries |
+| `compose_layout()` | Paint N streams into pixel-rect slots on a canvas (heads over slides, stacks, over-shoulder boxes) |
+
+### Stills and sequences
+
+| Function | Does |
+|---|---|
+| `still_clip()` | One image → a video clip, static or Ken Burns pan/zoom |
+| `frames_clip()` | A numbered frame sequence → a video clip |
 
 ### Joining and transitions
 
@@ -55,6 +63,8 @@ A few patterns hold across the API:
 | Function | Does |
 |---|---|
 | `audio_convert()` | Re-encode / resample / remix to a new container or codec |
+| `audio_concat()` | Join audio files with exact silence gaps (decoded-domain, one encode) |
+| `normalize_audio()` | Single EBU R128 loudnorm pass |
 | `broadcast_audio()` | Broadcast-clean chain: high-pass, de-hum, loudness, fades |
 | `align_audio()` | Locate a clip's audio within a longer narration |
 | `align_overlaps()` | Place chunks on the narration clock and derive overlaps |
@@ -72,7 +82,11 @@ A few patterns hold across the API:
 
 | Function | Does |
 |---|---|
-| `render_timeline()` | Lower a rotio (OTIO) timeline to one ffmpeg render |
+| `render_timeline()` | Lower a rotio (OTIO) timeline to a rendered video: source-range trims, dissolve transitions, still/sequence pre-render, `cornball.*` motion effects, multi-track slot layouts, caption burn, and a narration bed the video locks to |
+
+The `cornball.*` effect namespace and the slot-layout contract are documented
+in [`inst/schema/cornball-effects.md`](inst/schema/cornball-effects.md) and
+[`inst/schema/cornball-layout.md`](inst/schema/cornball-layout.md).
 
 ## Examples
 
