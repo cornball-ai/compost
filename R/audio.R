@@ -86,11 +86,9 @@ normalize_audio <- function(input, output = input, integrated = -16,
         normalizePath(output, mustWork = FALSE)
     }
 
-    args <- c(if (overwrite) "-y", "-i", input, "-vn",
-              "-af", sprintf("loudnorm=I=%g:LRA=%g:TP=%g", integrated, lra,
-                             tp),
-        if (!is.null(bitrate)) c("-b:a", bitrate),
-              out_path)
+    args <- c(if (overwrite) "-y", "-i", input, "-vn", "-af",
+              sprintf("loudnorm=I=%g:LRA=%g:TP=%g", integrated, lra, tp),
+        if (!is.null(bitrate)) c("-b:a", bitrate), out_path)
 
     if (dry_run) {
         return(.run_ffmpeg(args, dry_run = TRUE))
