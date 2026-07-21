@@ -33,4 +33,27 @@ cmd <- broadcast_audio(wav, "clean.wav", dry_run = TRUE)
 expect_true(grepl("^ffmpeg ", cmd))
 expect_true(grepl("-af ", cmd))
 
+# normalize_audio: the loudnorm-only pass.
+cmdn <- normalize_audio(wav, "level.wav", dry_run = TRUE)
+expect_true(grepl("loudnorm=I=-16:LRA=11:TP=-1.5", cmdn))
+expect_true(grepl("-vn", cmdn))
+expect_true(grepl("-b:a 192k", cmdn))
+cmdn2 <- normalize_audio(wav, "level.wav", integrated = -14, bitrate = NULL,
+                         dry_run = TRUE)
+expect_true(grepl("loudnorm=I=-14:", cmdn2))
+expect_false(grepl("-b:a", cmdn2))
+
 unlink(wav)
+
+# In-place normalize on a real sine (at_home).
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    w <- tempfile(fileext = ".wav")
+    compost:::.run_ffmpeg(c("-y", "-f", "lavfi", "-i",
+                            "sine=frequency=440:duration=2", "-ar", "48000",
+                            "-ac", "1", w))
+    d0 <- probe(w, "duration")
+    normalize_audio(w)
+    expect_true(file.exists(w))
+    expect_true(abs(probe(w, "duration") - d0) < 0.1)
+    unlink(w)
+}
