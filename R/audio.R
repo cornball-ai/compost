@@ -47,6 +47,61 @@ broadcast_audio <- function(input, output, dehum = TRUE, target_lufs = -14,
     invisible(output)
 }
 
+#' Normalize Audio Loudness
+#'
+#' A single loudnorm pass to an EBU R128 / ITU-R BS.1770 target -- the
+#' light-touch cousin of \code{\link{broadcast_audio}}, which wraps loudnorm
+#' in a full mastering chain (high-pass, de-hum notches, compression, fades).
+#' Use this to level takes that are already clean, e.g. TTS output across a
+#' batch of tracks.
+#'
+#' @param input Path to input audio (or A/V) file.
+#' @param output Path for output file (default: overwrite input in place).
+#' @param integrated Target integrated loudness in LUFS (default -16).
+#' @param lra Loudness range target in LU (default 11).
+#' @param tp True-peak ceiling in dBTP (default -1.5).
+#' @param bitrate Output audio bitrate for lossy formats (default "192k"),
+#'   or NULL for the encoder default.
+#' @param overwrite If TRUE (default), overwrite the output file.
+#' @param dry_run If TRUE, return the FFmpeg command without executing.
+#'
+#' @return Invisibly returns the output path. If dry_run, returns the
+#'   command string.
+#'
+#' @examples
+#' \dontrun{
+#' normalize_audio("audio.mp3")
+#' normalize_audio("take.wav", "leveled.wav", integrated = -14)
+#' }
+#'
+#' @export
+normalize_audio <- function(input, output = input, integrated = -16,
+                            lra = 11, tp = -1.5, bitrate = "192k",
+                            overwrite = TRUE, dry_run = FALSE) {
+    input <- normalizePath(input, mustWork = TRUE)
+    in_place <- identical(input, normalizePath(output, mustWork = FALSE))
+    out_path <- if (in_place && !dry_run) {
+        tempfile(fileext = paste0(".", tools::file_ext(input)))
+    } else {
+        normalizePath(output, mustWork = FALSE)
+    }
+
+    args <- c(if (overwrite) "-y", "-i", input, "-vn",
+              "-af", sprintf("loudnorm=I=%g:LRA=%g:TP=%g", integrated, lra,
+                             tp),
+        if (!is.null(bitrate)) c("-b:a", bitrate),
+              out_path)
+
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    if (in_place) {
+        file.rename(out_path, output)
+    }
+    invisible(output)
+}
+
 #' Build the -af filter graph for the broadcast-clean chain
 #'
 #' Pure string builder so the chain can be tested without ffmpeg.
