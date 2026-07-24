@@ -52,8 +52,15 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
                             "sine=frequency=440:duration=2", "-ar", "48000",
                             "-ac", "1", w))
     d0 <- probe(w, "duration")
+    before <- readBin(w, "raw", file.size(w))
     normalize_audio(w)
     expect_true(file.exists(w))
-    expect_true(abs(probe(w, "duration") - d0) < 0.1)
+    expect_true(abs(probe(w, "duration") - d0) < 0.1)   # same clip, releveled
+    # The in-place replacement actually landed: the file's bytes changed. A
+    # silent move failure (e.g. a cross-volume file.rename() on Windows) would
+    # leave the original untouched and this would still exist with d0 -- so
+    # compare content, not just existence/duration.
+    after <- readBin(w, "raw", file.size(w))
+    expect_false(identical(before, after))
     unlink(w)
 }

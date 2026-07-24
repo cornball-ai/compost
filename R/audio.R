@@ -95,7 +95,17 @@ normalize_audio <- function(input, output = input, integrated = -16,
     }
     .run_ffmpeg(args)
     if (in_place) {
-        file.rename(out_path, output)
+        # Move the normalized temp over the original. file.rename() is wrong here:
+        # it fails across filesystems (the session tempdir can be on a different
+        # volume, common on Windows) and, on Windows, fails outright when the
+        # destination already exists -- which in-place it always does. file.copy()
+        # with overwrite handles both; check the result rather than trusting it.
+        ok <- file.copy(out_path, output, overwrite = TRUE)
+        unlink(out_path)
+        if (!ok) {
+            stop("normalize_audio(): could not write normalized output to ",
+                 output, call. = FALSE)
+        }
     }
     invisible(output)
 }
