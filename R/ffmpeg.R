@@ -5,16 +5,20 @@
 #'
 #' @param args Character vector of ffmpeg arguments.
 #' @param dry_run If TRUE, return the command string instead of running it.
-#' @return On success, the exit status (invisibly). On dry_run, the command string.
+#' @return On success, the captured stderr lines (invisibly), so callers that
+#'   parse ffmpeg's log (e.g. \code{ametadata=print}, which writes to stderr)
+#'   can read them. On dry_run, the command string.
 #' @keywords internal
 .run_ffmpeg <- function(args, dry_run = FALSE) {
     if (dry_run) {
         return(paste("ffmpeg", paste(args, collapse = " ")))
     }
 
-    # system2() captures output via system() -> sh -c, so shQuote each arg: filter
-    # graphs carry ; [ ] ' and other shell metacharacters that would otherwise be
-    # split or globbed before ffmpeg ever sees them.
+    # shQuote() each arg: filter graphs carry ; [ ] ' and other metacharacters
+    # the shell would otherwise split or glob before ffmpeg sees them. system2()
+    # runs via sh -c on Unix and cmd.exe on Windows; shQuote() adapts its quoting
+    # style to the platform, so this holds on both (verified against Windows
+    # ffmpeg: real overlay/chromakey/concat filtergraphs survive intact).
     err <- suppressWarnings(system2("ffmpeg", shQuote(args), stdout = FALSE,
                                     stderr = TRUE))
     status <- attr(err, "status")
@@ -24,7 +28,30 @@
              paste(err, collapse = "\n"), call. = FALSE)
     }
 
-    invisible(0L)
+    invisible(err)
+}
+
+#' Run ffprobe Command
+#'
+#' Internal helper that executes ffprobe with the given arguments and returns
+#' its stdout. The single exec site for every ffprobe query in the package.
+#'
+#' @param args Character vector of ffprobe arguments.
+#' @return Character vector of ffprobe's stdout lines.
+#' @keywords internal
+.run_ffprobe <- function(args) {
+    # system2() captures via system() -> sh -c, so shQuote each arg (file paths may
+    # contain spaces). stderr discarded; callers pass -v error, so a non-zero
+    # status is the signal we act on.
+    out <- suppressWarnings(system2("ffprobe", shQuote(args), stdout = TRUE,
+                                    stderr = FALSE))
+    status <- attr(out, "status")
+
+    if (!is.null(status) && !identical(as.integer(status), 0L)) {
+        stop("ffprobe failed with status ", status, call. = FALSE)
+    }
+
+    out
 }
 
 #' Query a Single Field via ffprobe
@@ -37,19 +64,9 @@
 .probe_field <- function(file, field, stream = "v:0") {
     file <- normalizePath(file, mustWork = TRUE)
 
-    args <- c("-v", "error", "-select_streams", stream, "-show_entries",
-              paste0("stream=", field), "-of", "csv=p=0", file)
-
-    # system2() captures via system() -> sh -c, so shQuote each arg (file paths may
-    # contain spaces). stderr discarded; ffprobe runs with -v error, so a non-zero
-    # status is the signal we act on.
-    out <- suppressWarnings(system2("ffprobe", shQuote(args), stdout = TRUE,
-                                    stderr = FALSE))
-    status <- attr(out, "status")
-
-    if (!is.null(status) && !identical(as.integer(status), 0L)) {
-        stop("ffprobe failed with status ", status, call. = FALSE)
-    }
+    out <- .run_ffprobe(c("-v", "error", "-select_streams", stream,
+                          "-show_entries", paste0("stream=", field), "-of",
+                          "csv=p=0", file))
 
     trimws(paste(out, collapse = "\n"))
 }
@@ -67,16 +84,8 @@
 .probe_format_field <- function(file, field) {
     file <- normalizePath(file, mustWork = TRUE)
 
-    args <- c("-v", "error", "-show_entries", paste0("format=", field),
-              "-of", "csv=p=0", file)
-
-    out <- suppressWarnings(system2("ffprobe", shQuote(args), stdout = TRUE,
-                                    stderr = FALSE))
-    status <- attr(out, "status")
-
-    if (!is.null(status) && !identical(as.integer(status), 0L)) {
-        stop("ffprobe failed with status ", status, call. = FALSE)
-    }
+    out <- .run_ffprobe(c("-v", "error", "-show_entries",
+                          paste0("format=", field), "-of", "csv=p=0", file))
 
     trimws(paste(out, collapse = "\n"))
 }

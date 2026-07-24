@@ -1,10 +1,11 @@
 Package: compost
-Version: 0.1.0.13
+Version: 0.2.0
 Title: Video Compositing via 'FFmpeg'
 Description: Wraps common 'FFmpeg' <https://ffmpeg.org/> filter_complex
     patterns (overlay, chromakey, concat, scale, vstack) into clean R
     functions for video compositing, and lowers an 'OpenTimelineIO'
-    <https://opentimeline.io/> timeline (via the 'rotio' package) to a
+    <https://github.com/AcademySoftwareFoundation/OpenTimelineIO> timeline
+    (via the 'rotio' package) to a
     rendered video.
 Authors@R: c(
     person("Troy", "Hernandez",

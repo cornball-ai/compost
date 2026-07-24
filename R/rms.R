@@ -6,15 +6,19 @@
 #' ffmpeg filter chain for a per-window RMS readout
 #'
 #' Slices the audio into \code{window}-sample blocks and prints each block's
-#' overall RMS level (dB) as ametadata to \code{mfile}.
+#' overall RMS level (dB) as ametadata. No \code{file=} option: the print
+#' stream goes to ffmpeg's stderr, which the caller captures and parses. Writing
+#' to a \code{file=} path breaks on Windows, where a drive-letter path
+#' (\code{C:\\...}) is truncated at the colon by ffmpeg's filter-option parser
+#' and the metadata lands in a stray file named after the drive; reading stderr
+#' sidesteps path escaping entirely and behaves identically on every platform.
 #' @param window Window size in samples.
-#' @param mfile Path the ametadata print stream is written to.
 #' @return A single ffmpeg filter-chain string.
 #' @keywords internal
-.rms_filter <- function(window, mfile) {
+.rms_filter <- function(window) {
     sprintf(paste0("asetnsamples=%d,astats=metadata=1:reset=1,",
-                   "ametadata=print:key=lavfi.astats.Overall.RMS_level:file=%s"),
-            as.integer(window), mfile)
+                   "ametadata=print:key=lavfi.astats.Overall.RMS_level"),
+            as.integer(window))
 }
 
 #' Parse ffmpeg ametadata output into time/rms vectors
@@ -62,7 +66,7 @@
 #'   windows give finer time resolution at more rows.
 #' @return A list with numeric \code{time} (window centre, seconds) and
 #'   \code{rms} (RMS level in dB; digital silence is -120). Empty vectors if the
-#'   pass produced nothing.
+#'   pass ran but produced no metadata. Errors if ffmpeg itself fails.
 #' @examples
 #' \dontrun{
 #' cur <- rms_curve("speech.mp3")
@@ -70,13 +74,8 @@
 #' }
 #' @export
 rms_curve <- function(file, window = 1024L) {
-    mfile <- tempfile(fileext = ".txt")
-    on.exit(unlink(mfile), add = TRUE)
+    # ametadata=print writes to stderr; .run_ffmpeg() returns those lines.
     args <- c("-hide_banner", "-nostats", "-i", file, "-af",
-              .rms_filter(window, mfile), "-f", "null", "-")
-    suppressWarnings(system2("ffmpeg", shQuote(args), stdout = FALSE, stderr = FALSE))
-    if (!file.exists(mfile)) {
-        return(list(time = numeric(0), rms = numeric(0)))
-    }
-    .parse_rms(readLines(mfile, warn = FALSE))
+              .rms_filter(window), "-f", "null", "-")
+    .parse_rms(.run_ffmpeg(args))
 }

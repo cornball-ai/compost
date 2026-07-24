@@ -28,6 +28,46 @@ expect_equal(compost:::.subtitles_filter("/a/b/captions.ass"),
 # Windows-style colon gets escaped for the subtitles filter.
 expect_true(grepl("C\\\\:", compost:::.subtitles_filter("C:/x/captions.ass")))
 
+# Real burn-in: the escaping only matters if ffmpeg actually accepts it. On
+# Windows the srt sits at a drive path (C:\...) whose colon must be escaped for
+# the filtergraph; a string test can't prove ffmpeg swallows it. This burns a
+# temp-path srt onto a solid color and checks the graph was accepted. (This is
+# the check that would have caught the ametadata file= path bug had rms had one.)
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    srt <- tempfile(fileext = ".srt")
+    writeLines(c("1", "00:00:00,000 --> 00:00:01,000", "HELLO", ""), srt)
+    outsub <- tempfile(fileext = ".mp4")
+    st <- system2("ffmpeg", shQuote(c("-y", "-f", "lavfi",
+                                      "-i", "color=c=black:s=320x240:d=1",
+                                      "-vf", compost:::.subtitles_filter(srt), outsub)),
+                  stdout = FALSE, stderr = FALSE)
+    expect_true(is.null(attr(st, "status")) || attr(st, "status") == 0L)
+    expect_true(file.exists(outsub) && file.size(outsub) > 0)
+    unlink(c(srt, outsub))
+}
+
+# --- media url resolution (platform-agnostic) -------------------------------
+
+# Absolute urls pass through untouched; media_dir is only for relative ones.
+# These must hold on every OS: a bundle authored on one platform can render on
+# another, so the absolute-path test can't lean on .Platform$file.sep.
+expect_true(compost:::.is_absolute_path("/tmp/v.mp4"))       # POSIX
+expect_true(compost:::.is_absolute_path("C:\\media\\v.mp4")) # Windows drive, backslash
+expect_true(compost:::.is_absolute_path("C:/media/v.mp4"))   # Windows drive, forward slash
+expect_true(compost:::.is_absolute_path("\\\\srv\\share\\v.mp4")) # UNC
+expect_false(compost:::.is_absolute_path("v.mp4"))
+expect_false(compost:::.is_absolute_path("sub/v.mp4"))
+
+# An absolute url is returned as-is, not joined onto media_dir (the bug that
+# doubled the path on Windows: media_dir + "C:\..." -> "media_dir/C:\...").
+expect_equal(compost:::.resolve_media("/abs/v.mp4", "/base"), "/abs/v.mp4")
+expect_equal(compost:::.resolve_media("C:/abs/v.mp4", "/base"), "C:/abs/v.mp4")
+expect_equal(compost:::.resolve_media("C:\\abs\\v.mp4", "/base"), "C:\\abs\\v.mp4")
+# A relative url is joined onto media_dir.
+expect_equal(compost:::.resolve_media("v.mp4", "/base"), "/base/v.mp4")
+# No media_dir: url returned unchanged.
+expect_equal(compost:::.resolve_media("v.mp4", NULL), "v.mp4")
+
 # --- caption-track detection ------------------------------------------------
 
 cap_by_role <- Track("anything", kind = "Video")

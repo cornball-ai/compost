@@ -50,6 +50,22 @@
              error = function(e) NULL)
 }
 
+#' Is a media url an absolute filesystem path?
+#'
+#' Recognizes the forms an OTIO bundle can carry regardless of the OS it was
+#' authored on: POSIX absolute paths (leading \code{/}), Windows drive paths
+#' (\code{C:\\} or \code{C:/}), and UNC paths (leading backslash). Anything
+#' else is relative and gets resolved against \code{media_dir}. Deliberately
+#' platform-agnostic: a bundle written on Linux may be rendered on Windows and
+#' vice versa, so the test must not depend on \code{.Platform$file.sep}.
+#'
+#' @param url A media reference url.
+#' @return TRUE if \code{url} is an absolute filesystem path.
+#' @keywords internal
+.is_absolute_path <- function(url) {
+    grepl("^(/|\\\\|[A-Za-z]:)", url)
+}
+
 #' Resolve a media reference url against an optional base directory
 #'
 #' @param url Target url from an OTIO media reference.
@@ -57,7 +73,7 @@
 #' @return The resolved path.
 #' @keywords internal
 .resolve_media <- function(url, media_dir) {
-    if (is.null(media_dir) || startsWith(url, "/")) {
+    if (is.null(media_dir) || .is_absolute_path(url)) {
         return(url)
     }
     file.path(media_dir, url)

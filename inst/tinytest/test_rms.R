@@ -2,10 +2,13 @@
 # at_home end-to-end pass on a generated tone.
 
 # --- filter chain construction ----------------------------------------------
-af <- compost:::.rms_filter(1024, "/tmp/x.txt")
+af <- compost:::.rms_filter(1024)
 expect_true(grepl("asetnsamples=1024", af))
 expect_true(grepl("astats=metadata=1:reset=1", af))
-expect_true(grepl("RMS_level:file=/tmp/x.txt", af))
+expect_true(grepl("ametadata=print:key=lavfi.astats.Overall.RMS_level", af))
+# No file= option: the print stream is read from stderr, so no path is embedded
+# in the filtergraph (a Windows drive path there breaks on the colon).
+expect_false(grepl("file=", af))
 
 # --- ametadata parsing: pts_time then RMS_level pairs; -inf -> -120 ----------
 lines <- c("frame:0    pts:0     pts_time:0",
