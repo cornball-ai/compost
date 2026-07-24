@@ -5,16 +5,20 @@
 #'
 #' @param args Character vector of ffmpeg arguments.
 #' @param dry_run If TRUE, return the command string instead of running it.
-#' @return On success, the exit status (invisibly). On dry_run, the command string.
+#' @return On success, the captured stderr lines (invisibly), so callers that
+#'   parse ffmpeg's log (e.g. \code{ametadata=print}, which writes to stderr)
+#'   can read them. On dry_run, the command string.
 #' @keywords internal
 .run_ffmpeg <- function(args, dry_run = FALSE) {
     if (dry_run) {
         return(paste("ffmpeg", paste(args, collapse = " ")))
     }
 
-    # system2() captures output via system() -> sh -c, so shQuote each arg: filter
-    # graphs carry ; [ ] ' and other shell metacharacters that would otherwise be
-    # split or globbed before ffmpeg ever sees them.
+    # shQuote() each arg: filter graphs carry ; [ ] ' and other metacharacters
+    # the shell would otherwise split or glob before ffmpeg sees them. system2()
+    # runs via sh -c on Unix and cmd.exe on Windows; shQuote() adapts its quoting
+    # style to the platform, so this holds on both (verified against Windows
+    # ffmpeg: real overlay/chromakey/concat filtergraphs survive intact).
     err <- suppressWarnings(system2("ffmpeg", shQuote(args), stdout = FALSE,
                                     stderr = TRUE))
     status <- attr(err, "status")
@@ -24,7 +28,7 @@
              paste(err, collapse = "\n"), call. = FALSE)
     }
 
-    invisible(0L)
+    invisible(err)
 }
 
 #' Run ffprobe Command
