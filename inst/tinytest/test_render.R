@@ -28,6 +28,28 @@ expect_equal(compost:::.subtitles_filter("/a/b/captions.ass"),
 # Windows-style colon gets escaped for the subtitles filter.
 expect_true(grepl("C\\\\:", compost:::.subtitles_filter("C:/x/captions.ass")))
 
+# --- media url resolution (platform-agnostic) -------------------------------
+
+# Absolute urls pass through untouched; media_dir is only for relative ones.
+# These must hold on every OS: a bundle authored on one platform can render on
+# another, so the absolute-path test can't lean on .Platform$file.sep.
+expect_true(compost:::.is_absolute_path("/tmp/v.mp4"))       # POSIX
+expect_true(compost:::.is_absolute_path("C:\\media\\v.mp4")) # Windows drive, backslash
+expect_true(compost:::.is_absolute_path("C:/media/v.mp4"))   # Windows drive, forward slash
+expect_true(compost:::.is_absolute_path("\\\\srv\\share\\v.mp4")) # UNC
+expect_false(compost:::.is_absolute_path("v.mp4"))
+expect_false(compost:::.is_absolute_path("sub/v.mp4"))
+
+# An absolute url is returned as-is, not joined onto media_dir (the bug that
+# doubled the path on Windows: media_dir + "C:\..." -> "media_dir/C:\...").
+expect_equal(compost:::.resolve_media("/abs/v.mp4", "/base"), "/abs/v.mp4")
+expect_equal(compost:::.resolve_media("C:/abs/v.mp4", "/base"), "C:/abs/v.mp4")
+expect_equal(compost:::.resolve_media("C:\\abs\\v.mp4", "/base"), "C:\\abs\\v.mp4")
+# A relative url is joined onto media_dir.
+expect_equal(compost:::.resolve_media("v.mp4", "/base"), "/base/v.mp4")
+# No media_dir: url returned unchanged.
+expect_equal(compost:::.resolve_media("v.mp4", NULL), "v.mp4")
+
 # --- caption-track detection ------------------------------------------------
 
 cap_by_role <- Track("anything", kind = "Video")
