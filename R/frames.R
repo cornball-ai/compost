@@ -7,7 +7,7 @@
 #' Encode a Numbered Frame Sequence as a Video Clip
 #'
 #' Encodes \code{dir/pattern} (a C-style numbered pattern such as
-#' \code{"frame_\%04d.png"}) into a video at \code{fps}. The sequence's frame
+#' \code{"frame_%04d.png"}) into a video at \code{fps}. The sequence's frame
 #' count sets the clip length. Encode settings match \code{\link{still_clip}},
 #' so stills and frame sequences concatenate cleanly.
 #'
@@ -15,7 +15,7 @@
 #' @param output Path for the output video file.
 #' @param fps Frame rate the sequence was drawn at (default 30).
 #' @param pattern C-style filename pattern of the frames (default
-#'   \code{"frame_\%04d.png"}).
+#'   \code{"frame_%04d.png"}).
 #' @param start Number of the first frame (default 1).
 #' @param size Output dimensions as \code{c(width, height)}, or NULL (default)
 #'   to keep the source dimensions. Scaling ignores aspect; pass a size that

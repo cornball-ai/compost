@@ -14,7 +14,7 @@ frames_clip(dir, output, fps = 30, pattern = "frame_\%04d.png", start = 1L,
 \item{fps}{Frame rate the sequence was drawn at (default 30).}
 
 \item{pattern}{C-style filename pattern of the frames (default
-\code{"frame_\\%04d.png"}).}
+\code{"frame_\%04d.png"}).}
 
 \item{start}{Number of the first frame (default 1).}
 
@@ -32,7 +32,7 @@ Invisibly returns the output path. If dry_run, returns the command
 }
 \description{
 Encodes \code{dir/pattern} (a C-style numbered pattern such as
-\code{"frame_\\%04d.png"}) into a video at \code{fps}. The sequence's frame
+\code{"frame_\%04d.png"}) into a video at \code{fps}. The sequence's frame
 count sets the clip length. Encode settings match \code{\link{still_clip}},
 so stills and frame sequences concatenate cleanly.
 }
