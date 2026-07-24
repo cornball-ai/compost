@@ -4,7 +4,8 @@ Video compositing via FFmpeg, wrapped in clean R functions.
 
 `compost` turns common `ffmpeg` `filter_complex` patterns (overlay, chromakey,
 concat, scale, stack) into small, composable R functions, and lowers an
-[OpenTimelineIO](https://opentimeline.io) timeline (through
+[OpenTimelineIO](https://github.com/AcademySoftwareFoundation/OpenTimelineIO)
+timeline (through
 [rotio](https://github.com/cornball-ai/rotio)) to a single rendered video.
 
 Every function shells out to `ffmpeg`/`ffprobe`. Nothing is reimplemented in R;
