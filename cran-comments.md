@@ -4,8 +4,10 @@ This is a new submission.
 
 ## Test environments
 
-- Local: Ubuntu 24.04, R release
+- Local: Ubuntu 24.04, R 4.6.0
 - Windows 10: R 4.6.0 and R-devel (pre-release), via `R CMD check --as-cran`
+
+All three checked at package version 0.2.0.
 
 ## R CMD check results
 
