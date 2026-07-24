@@ -78,9 +78,9 @@ align_audio <- function(clip, narration, sr = 8000L, hop = 80L) {
     if (!is.na(n) && n > 0L) {
         return(n)
     }
-    out <- .run_ffprobe(c("-v", "error", "-count_frames", "-select_streams", "v",
-                          "-show_entries", "stream=nb_read_frames", "-of",
-                          "csv=p=0", file))
+    out <- .run_ffprobe(c("-v", "error", "-count_frames", "-select_streams",
+                          "v", "-show_entries", "stream=nb_read_frames",
+                          "-of", "csv=p=0", file))
     n <- suppressWarnings(as.integer(out[1]))
     if (is.na(n)) {
         stop("cannot determine frame count of ", file, call. = FALSE)

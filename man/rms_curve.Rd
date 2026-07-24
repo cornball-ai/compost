@@ -14,7 +14,7 @@ windows give finer time resolution at more rows.}
 \value{
 A list with numeric \code{time} (window centre, seconds) and
   \code{rms} (RMS level in dB; digital silence is -120). Empty vectors if the
-  pass produced nothing.
+  pass ran but produced no metadata. Errors if ffmpeg itself fails.
 }
 \description{
 Runs one ffmpeg \code{astats} pass over \code{file} and returns the RMS level
