@@ -27,6 +27,29 @@
     invisible(0L)
 }
 
+#' Run ffprobe Command
+#'
+#' Internal helper that executes ffprobe with the given arguments and returns
+#' its stdout. The single exec site for every ffprobe query in the package.
+#'
+#' @param args Character vector of ffprobe arguments.
+#' @return Character vector of ffprobe's stdout lines.
+#' @keywords internal
+.run_ffprobe <- function(args) {
+    # system2() captures via system() -> sh -c, so shQuote each arg (file paths may
+    # contain spaces). stderr discarded; callers pass -v error, so a non-zero
+    # status is the signal we act on.
+    out <- suppressWarnings(system2("ffprobe", shQuote(args), stdout = TRUE,
+                                    stderr = FALSE))
+    status <- attr(out, "status")
+
+    if (!is.null(status) && !identical(as.integer(status), 0L)) {
+        stop("ffprobe failed with status ", status, call. = FALSE)
+    }
+
+    out
+}
+
 #' Query a Single Field via ffprobe
 #'
 #' @param file Path to media file.
@@ -37,19 +60,9 @@
 .probe_field <- function(file, field, stream = "v:0") {
     file <- normalizePath(file, mustWork = TRUE)
 
-    args <- c("-v", "error", "-select_streams", stream, "-show_entries",
-              paste0("stream=", field), "-of", "csv=p=0", file)
-
-    # system2() captures via system() -> sh -c, so shQuote each arg (file paths may
-    # contain spaces). stderr discarded; ffprobe runs with -v error, so a non-zero
-    # status is the signal we act on.
-    out <- suppressWarnings(system2("ffprobe", shQuote(args), stdout = TRUE,
-                                    stderr = FALSE))
-    status <- attr(out, "status")
-
-    if (!is.null(status) && !identical(as.integer(status), 0L)) {
-        stop("ffprobe failed with status ", status, call. = FALSE)
-    }
+    out <- .run_ffprobe(c("-v", "error", "-select_streams", stream,
+                          "-show_entries", paste0("stream=", field), "-of",
+                          "csv=p=0", file))
 
     trimws(paste(out, collapse = "\n"))
 }
@@ -67,16 +80,8 @@
 .probe_format_field <- function(file, field) {
     file <- normalizePath(file, mustWork = TRUE)
 
-    args <- c("-v", "error", "-show_entries", paste0("format=", field),
-              "-of", "csv=p=0", file)
-
-    out <- suppressWarnings(system2("ffprobe", shQuote(args), stdout = TRUE,
-                                    stderr = FALSE))
-    status <- attr(out, "status")
-
-    if (!is.null(status) && !identical(as.integer(status), 0L)) {
-        stop("ffprobe failed with status ", status, call. = FALSE)
-    }
+    out <- .run_ffprobe(c("-v", "error", "-show_entries",
+                          paste0("format=", field), "-of", "csv=p=0", file))
 
     trimws(paste(out, collapse = "\n"))
 }

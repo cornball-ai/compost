@@ -62,7 +62,7 @@
 #'   windows give finer time resolution at more rows.
 #' @return A list with numeric \code{time} (window centre, seconds) and
 #'   \code{rms} (RMS level in dB; digital silence is -120). Empty vectors if the
-#'   pass produced nothing.
+#'   pass ran but produced no metadata. Errors if ffmpeg itself fails.
 #' @examples
 #' \dontrun{
 #' cur <- rms_curve("speech.mp3")
@@ -74,7 +74,7 @@ rms_curve <- function(file, window = 1024L) {
     on.exit(unlink(mfile), add = TRUE)
     args <- c("-hide_banner", "-nostats", "-i", file, "-af",
               .rms_filter(window, mfile), "-f", "null", "-")
-    suppressWarnings(system2("ffmpeg", shQuote(args), stdout = FALSE, stderr = FALSE))
+    .run_ffmpeg(args)
     if (!file.exists(mfile)) {
         return(list(time = numeric(0), rms = numeric(0)))
     }
