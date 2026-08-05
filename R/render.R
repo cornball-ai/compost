@@ -15,9 +15,9 @@
 # is present its slot binding decides the picture and the plain stack
 # composite does not run.
 #
-# Not lowered yet: per-clip transforms (position/scale/rotation/opacity),
-# nested Stacks, and multi-track audio. The audio track is still taken as a
-# single bed rather than assembled.
+# Not lowered yet: nested Stacks (refused rather than dropped) and Transitions
+# with a tail handle. Per-clip transforms apply to composited layers, not to
+# the concatenated bottom track.
 
 #' Is this track a caption track?
 #'
@@ -861,6 +861,34 @@
     chain
 }
 
+#' Mix several assembled audio tracks into one
+#'
+#' \code{normalize=0} so the tracks are summed rather than averaged. amix
+#' divides by the input count by default, which would halve the narration
+#' the moment a music track appeared beside it -- not what an editor means
+#' by adding a second track. \code{duration=longest} because a shorter
+#' track ends, it does not end the mix.
+#'
+#' @param files Assembled per-track audio, in track order.
+#' @param output Output path.
+#' @param dry_run If TRUE, return the command instead of running it.
+#' @return \code{output}, invisibly (or the command string).
+#' @keywords internal
+.mix_audio <- function(files, output, dry_run = FALSE) {
+    n <- length(files)
+    ins <- as.vector(rbind(rep("-i", n), files))
+    labels <- paste(sprintf("[%d:a]", seq_len(n) - 1L), collapse = "")
+    filt <- sprintf(
+                    "%samix=inputs=%d:duration=longest:dropout_transition=0:normalize=0[aout]",
+                    labels, n)
+    args <- c("-y", ins, "-filter_complex", filt, "-map", "[aout]", output)
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    invisible(output)
+}
+
 #' Render silence to stand in for a Gap on an audio track
 #'
 #' The audio counterpart of \code{.gap_clip()}: a Gap is silent, and
@@ -1126,13 +1154,47 @@ render_timeline <- function(timeline, output, media_dir = NULL,
 
     output <- normalizePath(output, mustWork = FALSE)
 
+    # A nested Stack is a legal child of the top Stack, and video_tracks()
+    # does not see it -- so its whole subtree used to render as nothing at
+    # all. Refuse: this renderer lowers one level, and quietly dropping a
+    # branch of the timeline is the failure this lowering exists to stop.
+    top_kids <- tryCatch(rotio::children(rotio::tracks(timeline)),
+                         error = function(e) list())
+    not_track <- !vapply(top_kids, function(k) inherits(k, "Track"),
+                         logical(1))
+    if (any(not_track)) {
+        stop("render_timeline(): the timeline holds ", sum(not_track),
+             " child(ren) that are not Tracks (",
+             paste(unique(vapply(top_kids[not_track],
+                                 function(k) class(k)[1], character(1))),
+                   collapse = ", "),
+             "); nested composition is not lowered yet, and rendering ",
+             "would silently omit them", call. = FALSE)
+    }
+
+    # OTIO's own mute switch. A disabled track is excluded outright --
+    # no picture, no sound, and no contribution to the timeline's length.
+    # Half-excluding it (silent but still occupying time) would make
+    # disabling a reference track change the render's duration, which is
+    # not what anyone means by muting one.
+    enabled_only <- function(tracks) {
+        if (length(tracks) == 0) {
+            return(tracks)
+        }
+        keep <- vapply(tracks, function(t) {
+            e <- tryCatch(t$enabled, error = function(cnd) TRUE)
+            !identical(e, FALSE)
+        }, logical(1))
+        tracks[keep]
+    }
+
     # Partition the Video-kind tracks: captions, layout slot tracks (role
     # matching a layout slot other than "visual"), and content.
-    vk_tracks <- rotio::video_tracks(timeline)
+    vk_tracks <- enabled_only(rotio::video_tracks(timeline))
     is_cap <- vapply(vk_tracks, .is_caption_track, logical(1))
     ctracks <- vk_tracks[is_cap]
     vtracks <- vk_tracks[!is_cap]
-    atracks <- rotio::audio_tracks(timeline)
+    atracks <- enabled_only(rotio::audio_tracks(timeline))
 
     layout <- .timeline_layout(timeline)
     if (!is.null(layout) && is.null(.layout_slots(layout))) {
@@ -1271,21 +1333,30 @@ render_timeline <- function(timeline, output, media_dir = NULL,
     # Audio: a separate audio track if present, otherwise from the video
     # itself. Only the first is used, and mixing several is out of scope --
     # but the rest were being dropped in silence, which is not.
-    if (length(atracks) > 1) {
-        warning("render_timeline(): only the first audio track is rendered; ",
-                length(atracks) - 1L, " further audio track(s) are ignored ",
-                "(mixing is not lowered yet)", call. = FALSE)
-    }
     audio_file <- NULL
     audio_is_bed <- FALSE
     if (length(atracks) > 0) {
-        aud <- .assemble_audio(atracks[[1]], media_dir)
-        if (!is.null(aud)) {
-            audio_file <- aud$file
-            audio_is_bed <- aud$bed
-            if (length(aud$temps) > 0) {
-                on.exit(unlink(aud$temps), add = TRUE)
+        auds <- list()
+        for (k in seq_along(atracks)) {
+            aud <- .assemble_audio(atracks[[k]], media_dir)
+            if (!is.null(aud)) {
+                if (length(aud$temps) > 0) {
+                    on.exit(unlink(aud$temps), add = TRUE)
+                }
+                auds <- c(auds, list(aud))
             }
+        }
+        if (length(auds) == 1L) {
+            audio_file <- auds[[1]]$file
+            audio_is_bed <- auds[[1]]$bed
+        } else if (length(auds) > 1L) {
+            # A mix is never a bed: several tracks summed is not one
+            # authored file for the timeline to bend its length to.
+            mixed <- tempfile(fileext = ".m4a")
+            on.exit(unlink(mixed), add = TRUE)
+            .mix_audio(vapply(auds, function(a) a$file, character(1)), mixed)
+            audio_file <- mixed
+            audio_is_bed <- FALSE
         }
     }
 

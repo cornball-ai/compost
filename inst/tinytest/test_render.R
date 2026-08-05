@@ -879,17 +879,19 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
     render_timeline(b_tl, b_out)
     expect_true(abs(as.numeric(probe(b_out, "duration")) - 2) < 0.25)
 
-    # More than one audio track is out of scope, but not silently: the
-    # ignored ones are named rather than dropped without a word.
+    # A second audio track was once named in a warning and dropped; it is
+    # mixed now, so the render is quiet and the length still comes from
+    # the timeline rather than from either track alone.
     m_tl <- Timeline("twoaudio")
     m_v <- Track("V1", kind = "Video")
     append_child(m_v, st_clip(e_red, 6))
     append_child(tracks(m_tl), m_v)
     append_child(tracks(m_tl), au_track(au_clip(a2s, 2)))
     append_child(tracks(m_tl), au_track(au_clip(a1s, 1)))
-    expect_warning(render_timeline(m_tl, tempfile(fileext = ".mp4")),
-                   "further audio track")
-    unlink(c(a2s, a1s, e_red, e_out, b_out))
+    m_out <- tempfile(fileext = ".mp4")
+    expect_silent(render_timeline(m_tl, m_out))
+    expect_true(abs(as.numeric(probe(m_out, "duration")) - 6) < 0.25)
+    unlink(c(a2s, a1s, e_red, e_out, b_out, m_out))
 }
 
 # --- per-clip transforms ------------------------------------------------------
@@ -1009,4 +1011,155 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
     expect_warning(render_timeline(wt, tempfile(fileext = ".mp4")),
                    "bottom video track")
     unlink(c(tf_red, tf_grn))
+}
+
+# --- mixing audio tracks, and refusing nested composition ---------------------
+# Extra audio tracks used to be named in a warning and dropped. They are
+# mixed now.
+mx <- compost:::.mix_audio(c("a.wav", "b.wav"), "out.m4a", dry_run = TRUE)
+expect_true(grepl("amix=inputs=2", mx, fixed = TRUE))
+# Summed, not averaged: amix halves every level per input by default,
+# which would duck the narration the moment a music track appeared.
+expect_true(grepl("normalize=0", mx, fixed = TRUE))
+# A shorter track ends; it does not end the mix.
+expect_true(grepl("duration=longest", mx, fixed = TRUE))
+
+# A nested Stack is a legal child that video_tracks() cannot see, so its
+# whole subtree rendered as nothing at all.
+nest <- Timeline("nested")
+append_child(tracks(nest), Track("V1", kind = "Video"))
+append_child(tracks(nest), Stack("inner"))
+expect_error(render_timeline(nest, tempfile(fileext = ".mp4")),
+             "nested composition")
+# The message names what it found rather than just refusing.
+expect_error(render_timeline(nest, tempfile(fileext = ".mp4")), "Stack")
+
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    mx_tone <- function(dur, freq) {
+        f <- tempfile(fileext = ".wav")
+        system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi", "-i",
+                    sprintf("sine=frequency=%d:duration=%s:sample_rate=44100",
+                            freq, dur), "-ac", "1", f)),
+                stdout = FALSE, stderr = FALSE)
+        f
+    }
+    mx_a <- mx_tone(4, 440)
+    mx_b <- mx_tone(2, 880)
+    mx_red <- st_solid(4, "red")
+    mx_clip <- function(f, d) {
+        Clip("a", ExternalReference(f),
+             source_range = TimeRange(RationalTime(0, 30),
+                                      RationalTime(d * 30, 30)))
+    }
+    mx_trk <- function(f, d) {
+        tr <- Track("A", kind = "Audio")
+        append_child(tr, mx_clip(f, d))
+        tr
+    }
+    mt <- Timeline("mixed")
+    mv <- Track("V1", kind = "Video")
+    append_child(mv, st_clip(mx_red, 4))
+    append_child(tracks(mt), mv)
+    append_child(tracks(mt), mx_trk(mx_a, 4))
+    append_child(tracks(mt), mx_trk(mx_b, 2))
+    mo <- tempfile(fileext = ".mp4")
+    # No warning any more: the second track is rendered, not dropped.
+    expect_silent(render_timeline(mt, mo))
+    expect_true(abs(as.numeric(probe(mo, "duration")) - 4) < 0.25)
+    # Both tones are present. A mix that had silently taken track one
+    # would carry 440Hz alone, so the check is that energy exists where
+    # only the second track put it.
+    seg <- tempfile(fileext = ".wav")
+    system2("ffmpeg", shQuote(c("-nostdin", "-y", "-i", mo, "-t", "1",
+                "-af", "highpass=f=700,lowpass=f=1100", "-ac", "1", seg)),
+            stdout = FALSE, stderr = FALSE)
+    expect_true(file.exists(seg) && file.size(seg) > 1000)
+    # Real energy in that band, not just a file that exists: a mix which
+    # had silently taken track one would be 440Hz alone and this
+    # 700-1100Hz slice would be near silent.
+    lvl <- rms_curve(seg)
+    expect_true(is.list(lvl) && length(lvl$rms) > 0)
+    expect_true(max(lvl$rms, na.rm = TRUE) > -40)
+    unlink(c(mx_a, mx_b, mx_red, mo, seg))
+}
+
+# --- OTIO's enabled flag is the mute switch -----------------------------------
+# Mixing every audio track means a reference track is suddenly audible, so
+# there has to be a way to say "not this one". OTIO already has it.
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    en_red <- st_solid(4, "red")
+    en_grn <- st_solid(2, "green")
+    en_tone <- tempfile(fileext = ".wav")
+    system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi", "-i",
+                "sine=frequency=440:duration=2:sample_rate=44100", "-ac", "1",
+                en_tone)), stdout = FALSE, stderr = FALSE)
+
+    en_build <- function(disable_upper) {
+        t <- Timeline("enabled")
+        lo <- Track("V1", kind = "Video")
+        append_child(lo, st_clip(en_red, 4))
+        up <- Track("V2", kind = "Video")
+        append_child(up, st_clip(en_grn, 2))
+        if (disable_upper) {
+            up$enabled <- FALSE
+        }
+        append_child(tracks(t), lo)
+        append_child(tracks(t), up)
+        o <- tempfile(fileext = ".mp4")
+        render_timeline(t, o)
+        o
+    }
+    en_rgb <- function(o, at) {
+        rf <- tempfile(fileext = ".raw")
+        on.exit(unlink(rf), add = TRUE)
+        system2("ffmpeg", shQuote(c("-nostdin", "-y", "-ss", format(at), "-i",
+                    o, "-frames:v", "1", "-pix_fmt", "rgb24", "-f",
+                    "rawvideo", rf)), stdout = FALSE, stderr = FALSE)
+        v <- as.integer(readBin(rf, "raw", file.size(rf)))
+        c(mean(v[seq(1, length(v), 3)]), mean(v[seq(2, length(v), 3)]))
+    }
+    on_out <- en_build(FALSE)
+    off_out <- en_build(TRUE)
+    expect_true(en_rgb(on_out, 1)[2] > 90)    # the layer paints
+    expect_true(en_rgb(off_out, 1)[2] < 20)   # disabled, it does not
+    expect_true(en_rgb(off_out, 1)[1] > 180)  # base shows instead
+
+    # A disabled track is excluded outright, length included. Half
+    # excluding it -- invisible but still occupying time -- would make
+    # muting a reference track change the render's duration.
+    long_t <- Timeline("enabledlen")
+    llo <- Track("V1", kind = "Video")
+    append_child(llo, st_clip(en_red, 2))
+    lup <- Track("V2", kind = "Video")
+    append_child(lup, Gap(RationalTime(120, 30)))
+    append_child(lup, st_clip(en_grn, 2))
+    lup$enabled <- FALSE
+    append_child(tracks(long_t), llo)
+    append_child(tracks(long_t), lup)
+    lo_out <- tempfile(fileext = ".mp4")
+    render_timeline(long_t, lo_out)
+    expect_true(abs(as.numeric(probe(lo_out, "duration")) - 2) < 0.25)
+
+    # And on audio: a muted track is not mixed in.
+    ma <- Timeline("mutedaudio")
+    mav <- Track("V1", kind = "Video")
+    append_child(mav, st_clip(en_red, 4))
+    at_on <- Track("A1", kind = "Audio")
+    append_child(at_on, Clip("a", ExternalReference(en_tone),
+                             source_range = TimeRange(RationalTime(0, 30),
+                                                      RationalTime(60, 30))))
+    at_off <- Track("A2", kind = "Audio")
+    append_child(at_off, Clip("b", ExternalReference(en_tone),
+                              source_range = TimeRange(RationalTime(0, 30),
+                                                       RationalTime(60, 30))))
+    at_off$enabled <- FALSE
+    append_child(tracks(ma), mav)
+    append_child(tracks(ma), at_on)
+    append_child(tracks(ma), at_off)
+    ma_out <- tempfile(fileext = ".mp4")
+    render_timeline(ma, ma_out)
+    # One track left, so it is a bed again and the video is cut to it --
+    # which only holds if the muted one really was excluded.
+    expect_true(abs(as.numeric(probe(ma_out, "duration")) - 2) < 0.25)
+    unlink(c(en_red, en_grn, en_tone, on_out, off_out, lo_out, ma_out))
 }
