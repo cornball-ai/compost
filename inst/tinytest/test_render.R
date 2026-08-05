@@ -518,3 +518,110 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
     expect_equal(sq2$windows[[1]], c(0, 1))
     unlink(c(src, outh, out2))
 }
+
+# --- Gaps occupy time ---------------------------------------------------------
+# A Gap was skipped as "not a Clip", which does not ignore an empty region:
+# it deletes time and slides every later clip earlier.
+
+# The walk collects them without needing media: leading, internal, trailing.
+gtrk <- function(...) {
+    tr <- Track("V1", kind = "Video")
+    for (kd in list(...)) append_child(tr, kd)
+    tr
+}
+gclip <- function(nm, s = 0, d = 2) {
+    Clip(nm, ExternalReference("g.mp4"),
+         source_range = TimeRange(RationalTime(s * 30, 30),
+                                  RationalTime(d * 30, 30)))
+}
+# gaps is one longer than files: before each clip, then the trailing blank.
+sq_lead <- compost:::.video_sequence(gtrk(Gap(RationalTime(30, 30)),
+                                          gclip("a")), NULL)
+expect_equal(sq_lead$gaps, c(1, 0))
+sq_mid <- compost:::.video_sequence(gtrk(gclip("a"), Gap(RationalTime(60, 30)),
+                                         gclip("b")), NULL)
+expect_equal(sq_mid$gaps, c(0, 2, 0))
+sq_tail <- compost:::.video_sequence(gtrk(gclip("a"),
+                                          Gap(RationalTime(45, 30))), NULL)
+expect_equal(sq_tail$gaps, c(0, 1.5))
+# Adjacent gaps accumulate rather than the last one winning.
+sq_two <- compost:::.video_sequence(gtrk(Gap(RationalTime(30, 30)),
+                                         Gap(RationalTime(30, 30)),
+                                         gclip("a")), NULL)
+expect_equal(sq_two$gaps, c(2, 0))
+# No gaps at all still reports the (zero) trailing entry, so callers never
+# index past the end.
+sq_none <- compost:::.video_sequence(gtrk(gclip("a"), gclip("b")), NULL)
+expect_equal(sq_none$gaps, c(0, 0, 0))
+
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    solid <- function(dur, color) {
+        f <- tempfile(fileext = ".mp4")
+        system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi", "-i",
+                    sprintf("color=c=%s:s=128x128:r=30:d=%s", color, dur),
+                    "-c:v", "libx264", "-qp", "0", "-pix_fmt", "yuv420p", f)),
+                stdout = FALSE, stderr = FALSE)
+        f
+    }
+    # Mean RGB of one frame, read as raw bytes: no image package, and
+    # structural rather than exact because the frame has been through x264.
+    frame_rgb <- function(video, t) {
+        rf <- tempfile(fileext = ".raw")
+        on.exit(unlink(rf), add = TRUE)
+        system2("ffmpeg", shQuote(c("-nostdin", "-y", "-ss", format(t),
+                    "-i", video, "-frames:v", "1", "-pix_fmt", "rgb24",
+                    "-f", "rawvideo", rf)), stdout = FALSE, stderr = FALSE)
+        v <- as.integer(readBin(rf, "raw", file.size(rf)))
+        c(mean(v[seq(1, length(v), 3)]), mean(v[seq(2, length(v), 3)]),
+          mean(v[seq(3, length(v), 3)]))
+    }
+    gred <- solid(3, "red")
+    ggrn <- solid(3, "green")
+    gsrc <- function(f, d = 2) {
+        Clip("c", ExternalReference(f),
+             source_range = TimeRange(RationalTime(0, 30),
+                                      RationalTime(d * 30, 30)))
+    }
+    grender <- function(...) {
+        tl <- Timeline("gaps")
+        append_child(tracks(tl), gtrk(...))
+        out <- tempfile(fileext = ".mp4")
+        render_timeline(tl, out)
+        out
+    }
+    gdur <- function(f) as.numeric(probe(f, "duration"))
+
+    # Each position fails differently and so is checked on its own. A
+    # leading gap shifts the whole track; a trailing one has no successor
+    # to reveal that it vanished, so only the duration catches it.
+    o_mid <- grender(gsrc(gred), Gap(RationalTime(60, 30)), gsrc(ggrn))
+    expect_true(abs(gdur(o_mid) - 6) < 0.15)
+    o_lead <- grender(Gap(RationalTime(30, 30)), gsrc(gred))
+    expect_true(abs(gdur(o_lead) - 3) < 0.15)
+    o_tail <- grender(gsrc(gred), Gap(RationalTime(45, 30)))
+    expect_true(abs(gdur(o_tail) - 3.5) < 0.15)
+    # Unchanged where there is no gap.
+    o_none <- grender(gsrc(gred), gsrc(ggrn))
+    expect_true(abs(gdur(o_none) - 4) < 0.15)
+
+    # Duration alone would pass for blank in the WRONG place, so check what
+    # is actually on screen. Sampled mid-clip: a frame at a cut boundary is
+    # legitimately ambiguous by a frame either way.
+    # ffmpeg's "red" is (255,0,0) but its "green" is (0,128,0), so each
+    # channel gets its own floor rather than one shared threshold.
+    dominant <- function(rgb, ch, floor) rgb[ch] > floor && all(rgb[-ch] < 40)
+    expect_true(dominant(frame_rgb(o_mid, 1), 1, 180))   # red
+    expect_true(all(frame_rgb(o_mid, 3) < 20))           # the gap is blank
+    expect_true(dominant(frame_rgb(o_mid, 5), 2, 90))    # green
+    # A leading gap really is at the front, not swallowed.
+    expect_true(all(frame_rgb(o_lead, 0.5) < 20))
+    expect_true(dominant(frame_rgb(o_lead, 2), 1, 180))
+    unlink(c(gred, ggrn, o_mid, o_lead, o_tail, o_none))
+}
+
+# A dissolve needs its two clips adjacent; blank between them is not a join.
+expect_error(compost:::.splice_gaps(c("a.mp4", "b.mp4"),
+                                    list(gaps = c(0, 1, 0),
+                                         windows = list(NULL, NULL),
+                                         fades = 0.5)),
+             "spans a Gap")
