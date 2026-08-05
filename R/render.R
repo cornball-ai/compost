@@ -119,11 +119,12 @@
 #'
 #' @param track A rotio video Track.
 #' @param media_dir Base directory for relative urls, or NULL.
-#' @return list(files, windows, fades, clips, gaps). A Clip over an
-#'   ImageSequenceReference contributes an NA file, filled in by
+#' @return list(files, windows, fades, clips, gaps, gap_fps). A Clip over
+#'   an ImageSequenceReference contributes an NA file, filled in by
 #'   \code{.prerender_sources()}. \code{gaps} has one more entry than
 #'   \code{files}: the blank seconds before each clip, then the trailing
-#'   blank.
+#'   blank. \code{gap_fps} is the rate of the first Gap seen (NA when
+#'   there is none), which is the only rate a gap-only track can supply.
 #' @keywords internal
 .video_sequence <- function(track, media_dir = NULL) {
     files <- character(0)
