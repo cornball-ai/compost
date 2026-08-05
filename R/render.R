@@ -3,15 +3,21 @@
 # This is the OTIO -> ffmpeg renderer: it reads the timeline structure and the
 # cornball metadata conventions, then emits a single ffmpeg invocation.
 #
-# Scope: one video track of sequential clips (concatenated, dissolving over
-# Transitions), an optional separate audio track, an optional caption track
-# that references a subtitle file, and a framing transform (scale + pad)
-# carried in `metadata$cornball$framing`. Still-image and ImageSequenceReference
-# clips are pre-rendered into video via still_clip()/frames_clip(), honoring
-# the `cornball.*` motion-effect namespace (inst/schema/cornball-effects.md).
+# Scope: a stack of video tracks composited bottom to top (each track a
+# sequence of clips with Gaps between them, dissolving over Transitions), an
+# optional separate audio track, an optional caption track that references a
+# subtitle file, and a framing transform (scale + pad) carried in
+# `metadata$cornball$framing`. Still-image and ImageSequenceReference clips are
+# pre-rendered into video via still_clip()/frames_clip(), honoring the
+# `cornball.*` motion-effect namespace (inst/schema/cornball-effects.md).
 # Roled tracks (narrator, ...) compose onto a canvas per the cornball layout
-# contract (inst/schema/cornball-layout.md) via compose_layout(). Arbitrary
-# stacks and overlapping layers beyond that are not lowered.
+# contract (inst/schema/cornball-layout.md) via compose_layout(); when a layout
+# is present its slot binding decides the picture and the plain stack
+# composite does not run.
+#
+# Not lowered yet: per-clip transforms (position/scale/rotation/opacity),
+# nested Stacks, and multi-track audio. The audio track is still taken as a
+# single bed rather than assembled.
 
 #' Is this track a caption track?
 #'
@@ -119,12 +125,14 @@
 #'
 #' @param track A rotio video Track.
 #' @param media_dir Base directory for relative urls, or NULL.
-#' @return list(files, windows, fades, clips, gaps, gap_fps). A Clip over
-#'   an ImageSequenceReference contributes an NA file, filled in by
+#' @return list(files, windows, fades, clips, gaps, gap_fps, durs). A Clip
+#'   over an ImageSequenceReference contributes an NA file, filled in by
 #'   \code{.prerender_sources()}. \code{gaps} has one more entry than
 #'   \code{files}: the blank seconds before each clip, then the trailing
 #'   blank. \code{gap_fps} is the rate of the first Gap seen (NA when
 #'   there is none), which is the only rate a gap-only track can supply.
+#'   \code{durs} is each clip's played length, NA where it has no
+#'   source_range and the media has to be probed for it.
 #' @keywords internal
 .video_sequence <- function(track, media_dir = NULL) {
     files <- character(0)
@@ -231,10 +239,10 @@
         # until the media is probed); the composite resolves those after
         # pre-rendering, when even a still has a real duration.
         durs <- c(durs, if (is.null(sr)) {
-            NA_real_
-        } else {
-            rotio::to_seconds(sr$duration)
-        })
+                NA_real_
+            } else {
+                rotio::to_seconds(sr$duration)
+            })
         if (length(files) > 1) {
             fades <- c(fades, fade)
         }
@@ -655,8 +663,8 @@
         bd <- as.numeric(probe(base, "duration"))
         if (isTRUE(is.finite(bd)) && duration > bd + 1e-3) {
             parts <- c(parts, sprintf(
-                    "[0:v]tpad=stop_mode=add:color=black:stop_duration=%s[bg0]",
-                    format(duration - bd, scientific = FALSE)))
+                                      "[0:v]tpad=stop_mode=add:color=black:stop_duration=%s[bg0]",
+                                      format(duration - bd, scientific = FALSE)))
             prev <- "[bg0]"
         }
     }
@@ -666,8 +674,8 @@
         if (is.finite(layers$ss[i])) {
             ins <- c(ins, "-ss", format(layers$ss[i], scientific = FALSE))
         }
-        ins <- c(ins, "-t", format(layers$dur[i], scientific = FALSE),
-                 "-i", layers$file[i])
+        ins <- c(ins, "-t", format(layers$dur[i], scientific = FALSE), "-i",
+                 layers$file[i])
         s <- layers$start[i]
         e <- s + layers$dur[i]
         # Fit to the canvas without padding, then centre. Padding would
@@ -678,7 +686,11 @@
         parts <- c(parts, sprintf(
                                   "[%d:v]scale=%d:%d:force_original_aspect_ratio=decrease,setpts=PTS-STARTPTS+%s/TB[ov%d]",
                                   i, bw, bh, format(s, scientific = FALSE), i))
-        out <- if (i == nrow(layers)) "[vout]" else sprintf("[bg%d]", i)
+        if (i == nrow(layers)) {
+            out <- "[vout]"
+        } else {
+            out <- sprintf("[bg%d]", i)
+        }
         # eof_action=pass and repeatlast=0 so a finished overlay lets the
         # base through instead of freezing its last frame over it.
         parts <- c(parts,
@@ -965,18 +977,17 @@ render_timeline <- function(timeline, output, media_dir = NULL,
         # is the same rule as everywhere else: a Gap occupies time.
         base_dur <- as.numeric(probe(base_video, "duration"))
         total <- max(c(base_dur, spans), na.rm = TRUE)
-        if (length(stack_layers) > 0 ||
-            isTRUE(total > base_dur + 1e-3)) {
+        if (length(stack_layers) > 0 || isTRUE(total > base_dur + 1e-3)) {
             composed <- tempfile(fileext = ".mp4")
             on.exit(unlink(composed), add = TRUE)
             .compose_stack(base_video,
-                           if (length(stack_layers) > 0) {
-                               do.call(rbind, stack_layers)
-                           } else {
-                               data.frame(file = character(0),
-                                          start = numeric(0),
-                                          dur = numeric(0), ss = numeric(0))
-                           }, composed, duration = total)
+                if (length(stack_layers) > 0) {
+                    do.call(rbind, stack_layers)
+                } else {
+                    data.frame(file = character(0),
+                               start = numeric(0),
+                               dur = numeric(0), ss = numeric(0))
+                }, composed, duration = total)
             base_video <- composed
         }
     }
