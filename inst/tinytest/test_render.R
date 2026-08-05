@@ -415,3 +415,106 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
 
     unlink(dirS, recursive = TRUE)
 }
+
+# --- proxy scaling ----------------------------------------------------------
+# A preview render is the full-size composition written at fewer pixels,
+# not a differently composed one, so the downscale is the LAST filter.
+cmd_s <- render_timeline(tl, file.path(dir, "small.mp4"), media_dir = dir,
+                         dry_run = TRUE, scale = 0.5)
+expect_true(grepl("scale=trunc(iw*0.500000/2)*2:trunc(ih*0.500000/2)*2", cmd_s,
+                  fixed = TRUE))
+# Even dimensions, because yuv420p requires them.
+expect_true(grepl("trunc(", cmd_s, fixed = TRUE))
+# It comes after framing and after the caption burn: captions are burned at
+# design size and then shrunk, which is what they look like on a phone.
+vf_s <- sub(".*-vf ", "", cmd_s)
+vf_s <- sub(" -map.*", "", vf_s)
+expect_true(regexpr("subtitles=", vf_s, fixed = TRUE) <
+            regexpr("scale=trunc", vf_s, fixed = TRUE))
+expect_true(regexpr("force_original_aspect_ratio", vf_s, fixed = TRUE) <
+            regexpr("scale=trunc", vf_s, fixed = TRUE))
+
+# scale = 1 is the default and adds nothing at all.
+expect_false(grepl("scale=trunc", cmd, fixed = TRUE))
+cmd_one <- render_timeline(tl, file.path(dir, "one.mp4"), media_dir = dir,
+                           dry_run = TRUE, scale = 1)
+expect_false(grepl("scale=trunc", cmd_one, fixed = TRUE))
+
+# Refusals, so a typo cannot silently render at full size or at nothing.
+for (bad in list(0, -0.5, 1.5, NA_real_, Inf, c(0.5, 0.5), "half", NULL)) {
+    expect_error(render_timeline(tl, file.path(dir, "b.mp4"), media_dir = dir,
+                                 dry_run = TRUE, scale = bad),
+                 "scale must be a single number")
+}
+
+# Scaling forces a re-encode even when nothing else would have: -c:v copy
+# cannot resize.
+tl_p <- Timeline("plain")
+v_p <- Track("v", kind = "Video")
+append_child(v_p, Clip("a", ExternalReference("primary.mp4"),
+                       source_range = TimeRange(RationalTime(0, 30),
+                                                RationalTime(60, 30))))
+append_child(tracks(tl_p), v_p)
+cmd_p <- render_timeline(tl_p, file.path(dir, "p.mp4"), media_dir = dir,
+                         dry_run = TRUE)
+cmd_ps <- render_timeline(tl_p, file.path(dir, "ps.mp4"), media_dir = dir,
+                          dry_run = TRUE, scale = 0.25)
+expect_true(grepl("-c:v copy", cmd_p, fixed = TRUE))
+expect_true(grepl("-c:v libx264", cmd_ps, fixed = TRUE))
+expect_false(grepl("-c:v copy", cmd_ps, fixed = TRUE))
+
+# --- a range starting at 0 is not thereby the whole file ---------------------
+# Legacy timelines wrote nominal [0, dur] over whole-file media, and taking
+# a zero start as "no trim" was how they were tolerated. A real edit writes
+# [0, dur] whenever it wants the first dur seconds and no more, which is
+# every take trimmed from its own first frame. Guessing from the start time
+# played the whole source and the output ran longer than the timeline.
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    src <- tempfile(fileext = ".mp4")
+    system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi",
+                                "-i", "testsrc2=duration=4:size=128x128:rate=30",
+                                "-c:v", "libx264", "-qp", "0",
+                                "-pix_fmt", "yuv420p", src)),
+            stdout = FALSE, stderr = FALSE)
+
+    head_tl <- Timeline("headtrim")
+    hv <- Track("V1", kind = "Video")
+    append_child(hv, Clip("first second", ExternalReference(src),
+                          source_range = TimeRange(RationalTime(0, 30),
+                                                   RationalTime(30, 30))))
+    append_child(tracks(head_tl), hv)
+    outh <- tempfile(fileext = ".mp4")
+    render_timeline(head_tl, outh)
+    expect_true(abs(as.numeric(probe(outh, "duration")) - 1) < 0.15)
+
+    # Two head-trimmed clips off the same source concatenate to their own
+    # durations, not to two whole files. This is the shape an A/B edit
+    # makes and what was silently running long.
+    two <- Timeline("twoheads")
+    tv <- Track("V1", kind = "Video")
+    append_child(tv, Clip("a", ExternalReference(src),
+                          source_range = TimeRange(RationalTime(0, 30),
+                                                   RationalTime(30, 30))))
+    append_child(tv, Clip("b", ExternalReference(src),
+                          source_range = TimeRange(RationalTime(60, 30),
+                                                   RationalTime(30, 30))))
+    append_child(tracks(two), tv)
+    out2 <- tempfile(fileext = ".mp4")
+    render_timeline(two, out2)
+    expect_true(abs(as.numeric(probe(out2, "duration")) - 2) < 0.2)
+
+    # A range that really does cover the file still takes the cheap
+    # whole-file path: trimming there is a no-op, so nothing changes.
+    whole <- Timeline("whole")
+    wv <- Track("V1", kind = "Video")
+    append_child(wv, Clip("all", ExternalReference(src),
+                          source_range = TimeRange(RationalTime(0, 30),
+                                                   RationalTime(120, 30))))
+    append_child(tracks(whole), wv)
+    sq <- compost:::.video_sequence(wv, NULL)
+    expect_true(is.null(sq$windows[[1]]))
+    # ... while the short one gets a window.
+    sq2 <- compost:::.video_sequence(hv, NULL)
+    expect_equal(sq2$windows[[1]], c(0, 1))
+    unlink(c(src, outh, out2))
+}
