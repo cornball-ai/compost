@@ -741,6 +741,98 @@
          span = max(p$start + p$dur) + seq_v$gaps[length(seq_v$gaps)])
 }
 
+#' Render silence to stand in for a Gap on an audio track
+#'
+#' The audio counterpart of \code{.gap_clip()}: a Gap is silent, and
+#' silence has to exist as a file because \code{audio_concat()} inserts one
+#' uniform gap between all inputs rather than a different one per position.
+#'
+#' @param output Output path.
+#' @param duration Seconds of silence.
+#' @param sample_rate Hz, matched to the track's clips.
+#' @param channels 1 or 2, matched to the track's clips.
+#' @return \code{output}, invisibly.
+#' @keywords internal
+.silence_clip <- function(output, duration, sample_rate, channels) {
+    layout <- switch(as.character(channels), "1" = "mono", "2" = "stereo",
+                     stop("render_timeline(): audio must be mono or stereo", call. = FALSE))
+    .run_ffmpeg(c("-y", "-f", "lavfi", "-i",
+                  sprintf("anullsrc=r=%d:cl=%s", sample_rate, layout), "-t",
+                  format(duration, scientific = FALSE), output))
+    invisible(output)
+}
+
+#' Assemble one audio track into a single file
+#'
+#' A Track is a sequence whether it carries pictures or sound, so the same
+#' walk serves: clips in order, honoring source ranges, with Gaps as
+#' silence.
+#'
+#' The single-clip case is deliberately passed through untouched. That is
+#' the authored-bed shape (one narration file over the whole timeline), it
+#' is what the "narration is ground truth" rule downstream is written for,
+#' and re-encoding it would change the very thing being treated as
+#' authoritative.
+#'
+#' @param track A rotio audio Track.
+#' @param media_dir Base directory for relative urls, or NULL.
+#' @return list(file, temps, bed) -- \code{bed} marks the untouched
+#'   single-clip case -- or NULL when the track has no clips.
+#' @keywords internal
+.assemble_audio <- function(track, media_dir) {
+    seq_a <- .video_sequence(track, media_dir)
+    files <- seq_a$files
+    if (length(files) == 0) {
+        return(NULL)
+    }
+    files <- normalizePath(files, mustWork = TRUE)
+    gaps <- seq_a$gaps
+    wins <- seq_a$windows
+    # One clip and no gaps IS the authored-bed shape, trimmed or not: a
+    # source range does not stop it being the whole of the track's audio,
+    # and downstream that is the only question the bed rule asks. Only the
+    # untrimmed case can also skip the re-encode.
+    bed <- length(files) == 1L && !any(gaps > 0)
+    if (bed && is.null(wins[[1]])) {
+        return(list(file = files[1], temps = character(0), bed = TRUE))
+    }
+    sr <- as.integer(.probe_field(files[1], "sample_rate", "a:0"))
+    ch <- as.integer(.probe_field(files[1], "channels", "a:0"))
+    if (!isTRUE(is.finite(sr)) || !isTRUE(is.finite(ch))) {
+        stop("render_timeline(): could not read the audio track's rate or ",
+             "channel count from ", basename(files[1]), call. = FALSE)
+    }
+    temps <- character(0)
+    inputs <- character(0)
+    silence <- function(len) {
+        f <- tempfile(fileext = ".wav")
+        .silence_clip(f, len, sr, ch)
+        temps <<- c(temps, f)
+        f
+    }
+    for (i in seq_along(files)) {
+        if (gaps[i] > 0) {
+            inputs <- c(inputs, silence(gaps[i]))
+        }
+        w <- wins[[i]]
+        if (is.null(w)) {
+            inputs <- c(inputs, files[i])
+        } else {
+            cut <- tempfile(fileext = paste0(".", tools::file_ext(files[i])))
+            subclip(files[i], cut, start = w[1], duration = w[2] - w[1])
+            temps <- c(temps, cut)
+            inputs <- c(inputs, cut)
+        }
+    }
+    if (gaps[length(gaps)] > 0) {
+        inputs <- c(inputs, silence(gaps[length(gaps)]))
+    }
+    out <- tempfile(fileext = ".m4a")
+    temps <- c(temps, out)
+    audio_concat(inputs, out, sample_rate = sr, channels = ch, overwrite = TRUE)
+    list(file = out, temps = temps, bed = bed)
+}
+
 #' Assemble one video track into a single renderable file
 #'
 #' The track walk + still/sequence pre-render + gap fill +
@@ -1042,22 +1134,41 @@ render_timeline <- function(timeline, output, media_dir = NULL,
         vf <- c(vf, .subtitles_filter(sub_file))
     }
 
-    # Audio: a separate audio track if present, otherwise from the video itself.
+    # Audio: a separate audio track if present, otherwise from the video
+    # itself. Only the first is used, and mixing several is out of scope --
+    # but the rest were being dropped in silence, which is not.
+    if (length(atracks) > 1) {
+        warning("render_timeline(): only the first audio track is rendered; ",
+                length(atracks) - 1L, " further audio track(s) are ignored ",
+                "(mixing is not lowered yet)", call. = FALSE)
+    }
     audio_file <- NULL
+    audio_is_bed <- FALSE
     if (length(atracks) > 0) {
-        aclips <- .clip_urls(atracks[[1]], media_dir)
-        if (length(aclips) > 0) {
-            audio_file <- normalizePath(aclips[[1]], mustWork = TRUE)
+        aud <- .assemble_audio(atracks[[1]], media_dir)
+        if (!is.null(aud)) {
+            audio_file <- aud$file
+            audio_is_bed <- aud$bed
+            if (length(aud$temps) > 0) {
+                on.exit(unlink(aud$temps), add = TRUE)
+            }
         }
     }
 
-    # The narration is the ground truth: when an audio bed is mapped, the
-    # video is padded (last frame held) or cut to EXACTLY the audio's
+    # The narration is the ground truth: when an authored BED is mapped,
+    # the video is padded (last frame held) or cut to EXACTLY the audio's
     # duration, so the two streams always match. Spoken words are never
     # clipped to a too-short video; surplus silent video never trails the
     # voice.
+    #
+    # That rule belongs to a single authored file, which is the shape it
+    # was written for. An assembled track is not a bed the timeline should
+    # bend to -- it IS part of the timeline, derived from the same clips as
+    # the picture, so the two already agree and letting the audio govern
+    # would cut the render to whatever its first clip happened to be.
     n_frames <- NULL
-    if (!is.null(audio_file)) {
+
+    if (!is.null(audio_file) && audio_is_bed) {
         adur <- as.numeric(probe(audio_file, "duration"))
         vfps <- .video_fps(base_video)
         n_frames <- as.integer(round(adur * vfps))

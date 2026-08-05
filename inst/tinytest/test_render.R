@@ -328,9 +328,11 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
     render_timeline(tl_l3, outl)
     expect_equal(probe(outl, "width"), 1080)
     expect_equal(probe(outl, "height"), 1920)
-    adur3 <- as.numeric(probe(lbed, "duration"))
-    expect_equal(as.integer(probe(outl, "nb_frames")),
-                 as.integer(round(adur3 * 30)))
+    # As in the slides case: the clip asks for 4s of a bed whose container
+    # runs slightly past that, and the render now delivers the 4s asked
+    # for rather than inheriting the padding.
+    expect_true(as.numeric(probe(lbed, "duration")) > 4)
+    expect_equal(as.integer(probe(outl, "nb_frames")), 120L)
 
     unlink(ldir, recursive = TRUE)
 }
@@ -386,12 +388,14 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
 
     outs <- file.path(dirS, "slides.mp4")
     render_timeline(tls, outs)
-    # Video padded/cut to exactly the bed's duration at 30fps (the mp3
-    # container reports encoder padding beyond the 4s sine, so derive the
-    # expectation from the probe rather than assuming 120), framed to the box.
-    adur <- as.numeric(probe(bed, "duration"))
-    expect_equal(as.integer(probe(outs, "nb_frames")),
-                 as.integer(round(adur * 30)))
+    # Video padded/cut to exactly the audio CLIP's declared length, framed
+    # to the box. This assertion changed with audio-track assembly: the
+    # clip's source_range asks for 4s, but the mp3 container carries
+    # encoder padding past the 4s sine, and the render used to inherit that
+    # padding because the range was ignored and the whole file was mapped.
+    # Honoring the range gives the 4s the timeline actually asked for.
+    expect_true(as.numeric(probe(bed, "duration")) > 4) # the padding is real
+    expect_equal(as.integer(probe(outs, "nb_frames")), 120L)
     expect_equal(probe(outs, "width"), 240)
     expect_equal(probe(outs, "height"), 240)
 
@@ -794,3 +798,96 @@ expect_warning(try(render_timeline(lay_tl, file.path(dir, "lay.mp4"),
                                    media_dir = dir, dry_run = TRUE),
                    silent = TRUE),
                "unroled video track")
+
+# --- an audio Track is a sequence, not a bed ----------------------------------
+# aclips[[1]] took the FIRST clip as the entire audio, and the "narration is
+# ground truth" rule then cut the video to it. A 7-clip narration track over
+# a 38s timeline rendered 4.87s.
+
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    au_tone <- function(dur, freq) {
+        f <- tempfile(fileext = ".wav")
+        system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi", "-i",
+                    sprintf("sine=frequency=%d:duration=%s:sample_rate=44100",
+                            freq, dur), "-ac", "1", f)),
+                stdout = FALSE, stderr = FALSE)
+        f
+    }
+    au_clip <- function(f, d) {
+        Clip("a", ExternalReference(f),
+             source_range = TimeRange(RationalTime(0, 30),
+                                      RationalTime(d * 30, 30)))
+    }
+    au_track <- function(...) {
+        tr <- Track("A1", kind = "Audio")
+        for (kd in list(...)) append_child(tr, kd)
+        tr
+    }
+    a2s <- au_tone(2, 440)
+    a1s <- au_tone(1, 880)
+
+    # One clip, no gaps, no trim: passed through untouched. That is the
+    # authored-bed shape and re-encoding it would change the thing being
+    # treated as authoritative.
+    one <- compost:::.assemble_audio(au_track(au_clip(a2s, 2)), NULL)
+    expect_true(one$bed)
+    expect_equal(normalizePath(one$file), normalizePath(a2s))
+    expect_equal(length(one$temps), 0L)
+
+    # Several clips: assembled, and no longer a bed.
+    many <- compost:::.assemble_audio(
+            au_track(au_clip(a2s, 2), au_clip(a1s, 1)), NULL)
+    expect_false(many$bed)
+    expect_true(abs(as.numeric(probe(many$file, "duration")) - 3) < 0.2)
+
+    # A Gap on an audio track is silence that occupies time.
+    gapped <- compost:::.assemble_audio(
+            au_track(au_clip(a2s, 2), Gap(RationalTime(60, 30)),
+                     au_clip(a1s, 1)), NULL)
+    expect_false(gapped$bed)
+    expect_true(abs(as.numeric(probe(gapped$file, "duration")) - 5) < 0.2)
+    # ... including a leading and a trailing one.
+    edged <- compost:::.assemble_audio(
+            au_track(Gap(RationalTime(30, 30)), au_clip(a1s, 1),
+                     Gap(RationalTime(30, 30))), NULL)
+    expect_true(abs(as.numeric(probe(edged$file, "duration")) - 3) < 0.2)
+
+    # An empty audio track is nothing, not an error.
+    expect_null(compost:::.assemble_audio(au_track(), NULL))
+
+    # End to end: the timeline governs, and the render is no longer cut to
+    # the first audio clip.
+    e_red <- st_solid(6, "red")
+    e_tl <- Timeline("multiaudio")
+    e_v <- Track("V1", kind = "Video")
+    append_child(e_v, st_clip(e_red, 6))
+    append_child(tracks(e_tl), e_v)
+    append_child(tracks(e_tl), au_track(au_clip(a2s, 2), au_clip(a2s, 2),
+                                        au_clip(a2s, 2)))
+    e_out <- tempfile(fileext = ".mp4")
+    render_timeline(e_tl, e_out)
+    expect_true(abs(as.numeric(probe(e_out, "duration")) - 6) < 0.25)
+
+    # The bed rule still holds for a genuine single-file bed: the video is
+    # cut to the audio, which is what it is there for.
+    b_tl <- Timeline("bed")
+    b_v <- Track("V1", kind = "Video")
+    append_child(b_v, st_clip(e_red, 6))
+    append_child(tracks(b_tl), b_v)
+    append_child(tracks(b_tl), au_track(au_clip(a2s, 2)))
+    b_out <- tempfile(fileext = ".mp4")
+    render_timeline(b_tl, b_out)
+    expect_true(abs(as.numeric(probe(b_out, "duration")) - 2) < 0.25)
+
+    # More than one audio track is out of scope, but not silently: the
+    # ignored ones are named rather than dropped without a word.
+    m_tl <- Timeline("twoaudio")
+    m_v <- Track("V1", kind = "Video")
+    append_child(m_v, st_clip(e_red, 6))
+    append_child(tracks(m_tl), m_v)
+    append_child(tracks(m_tl), au_track(au_clip(a2s, 2)))
+    append_child(tracks(m_tl), au_track(au_clip(a1s, 1)))
+    expect_warning(render_timeline(m_tl, tempfile(fileext = ".mp4")),
+                   "further audio track")
+    unlink(c(a2s, a1s, e_red, e_out, b_out))
+}
