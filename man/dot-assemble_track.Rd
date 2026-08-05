@@ -16,7 +16,8 @@
 list(file, temps), or NULL when the track has no clips.
 }
 \description{
-The track walk + still/sequence pre-render + passthrough/concat/crossfade
-pipeline, shared by the content track and layout slot tracks.
+The track walk + still/sequence pre-render + gap fill +
+passthrough/concat/crossfade pipeline, shared by the content track and
+layout slot tracks.
 }
 \keyword{internal}

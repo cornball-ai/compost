@@ -509,7 +509,7 @@
     # A dissolve needs its two clips adjacent. Blank between them is not a
     # join at all, so say so rather than fading into filler.
     if (length(seq_v$fades) > 0 && any(seq_v$fades > 0 &
-            gaps[seq_along(seq_v$fades) + 1L] > 0)) {
+                                       gaps[seq_along(seq_v$fades) + 1L] > 0)) {
         stop("render_timeline(): a Transition spans a Gap; there is nothing ",
              "on the other side to dissolve into", call. = FALSE)
     }

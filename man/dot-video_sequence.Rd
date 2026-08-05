@@ -11,14 +11,22 @@
 \item{media_dir}{Base directory for relative urls, or NULL.}
 }
 \value{
-list(files, windows, fades, clips). A Clip over an
+list(files, windows, fades, clips, gaps). A Clip over an
   ImageSequenceReference contributes an NA file, filled in by
-  \code{.prerender_sources()}.
+  \code{.prerender_sources()}. \code{gaps} has one more entry than
+  \code{files}: the blank seconds before each clip, then the trailing
+  blank.
 }
 \description{
 Returns the clips' resolved files, per-clip source windows (the media to
 feed in: the source range, widened at the front by a preceding Transition's
 in_offset so the dissolve has its handle), and per-join fade durations
 (0 = butt join). A clip without a source_range feeds the whole file.
+}
+\details{
+A \code{Gap} occupies time and shows nothing, so its duration is
+collected rather than skipped: dropping it does not ignore an empty
+region, it deletes time and slides every later clip earlier.
+
 }
 \keyword{internal}
