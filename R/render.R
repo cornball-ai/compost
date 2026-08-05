@@ -599,7 +599,7 @@
         }
         blank <- tempfile(fileext = ".mp4")
         .gap_clip(blank, total_gap, as.integer(canvas),
-                  if (is.na(seq_v$gap_fps)) 30 else seq_v$gap_fps)
+            if (is.na(seq_v$gap_fps)) 30 else seq_v$gap_fps)
         return(list(file = blank, temps = blank))
     }
     pre <- .prerender_sources(seq_v, framing, media_dir)
