@@ -3,8 +3,16 @@
 \alias{subclip}
 \title{Extract a Time Range from a Media File}
 \usage{
-subclip(input, output, start = 0, duration = NULL, end = NULL, reencode = TRUE,
-        overwrite = TRUE, dry_run = FALSE)
+subclip(
+  input,
+  output,
+  start = 0,
+  duration = NULL,
+  end = NULL,
+  reencode = TRUE,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{input}{Path to input media.}

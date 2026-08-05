@@ -3,8 +3,14 @@
 \alias{compose_layout}
 \title{Compose Video Streams onto a Canvas per a Layout}
 \usage{
-compose_layout(sources, output, layout, reference = names(sources)[1],
-               overwrite = TRUE, dry_run = FALSE)
+compose_layout(
+  sources,
+  output,
+  layout,
+  reference = names(sources)[1],
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{sources}{Named character vector or list of video paths, keyed by

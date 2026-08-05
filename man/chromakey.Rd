@@ -3,8 +3,16 @@
 \alias{chromakey}
 \title{Chromakey (Green/Blue Screen) Compositing}
 \usage{
-chromakey(background, foreground, output, color = "0x00ff00", similarity = 0.1,
-          blend = 0.075, overwrite = TRUE, dry_run = FALSE)
+chromakey(
+  background,
+  foreground,
+  output,
+  color = "0x00ff00",
+  similarity = 0.1,
+  blend = 0.075,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{background}{Path to background video or image.}

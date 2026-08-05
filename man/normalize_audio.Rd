@@ -3,8 +3,16 @@
 \alias{normalize_audio}
 \title{Normalize Audio Loudness}
 \usage{
-normalize_audio(input, output = input, integrated = -16, lra = 11, tp = -1.5,
-                bitrate = "192k", overwrite = TRUE, dry_run = FALSE)
+normalize_audio(
+  input,
+  output = input,
+  integrated = -16,
+  lra = 11,
+  tp = -1.5,
+  bitrate = "192k",
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{input}{Path to input audio (or A/V) file.}

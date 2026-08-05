@@ -3,8 +3,16 @@
 \alias{broadcast_audio}
 \title{Broadcast-Clean an Audio File}
 \usage{
-broadcast_audio(input, output, dehum = TRUE, target_lufs = -14, fade = 0.06,
-                highpass = 80, overwrite = TRUE, dry_run = FALSE)
+broadcast_audio(
+  input,
+  output,
+  dehum = TRUE,
+  target_lufs = -14,
+  fade = 0.06,
+  highpass = 80,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{input}{Path to input audio (or A/V) file.}
