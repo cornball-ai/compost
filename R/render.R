@@ -1160,8 +1160,7 @@ render_timeline <- function(timeline, output, media_dir = NULL,
     # branch of the timeline is the failure this lowering exists to stop.
     top_kids <- tryCatch(rotio::children(rotio::tracks(timeline)),
                          error = function(e) list())
-    not_track <- !vapply(top_kids, function(k) inherits(k, "Track"),
-                         logical(1))
+    not_track <- !vapply(top_kids, function(k) inherits(k, "Track"), logical(1))
     if (any(not_track)) {
         stop("render_timeline(): the timeline holds ", sum(not_track),
              " child(ren) that are not Tracks (",
