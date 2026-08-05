@@ -617,8 +617,15 @@
     ss <- vapply(seq_v$windows, function(w) {
         if (is.null(w)) NA_real_ else w[1]
     }, 0)
-    data.frame(file = files, start = starts, dur = durs, ss = ss,
-               stringsAsFactors = FALSE)
+    p <- data.frame(file = files, start = starts, dur = durs, ss = ss,
+                    stringsAsFactors = FALSE)
+    # Transforms ride along as a list column: a clip's placement on the
+    # canvas is part of where it sits, not a separate lookup the composite
+    # would have to do against the clip objects all over again.
+    p$transform <- lapply(seq_len(n), function(i) {
+        if (i <= length(seq_v$clips)) .clip_transform(seq_v$clips[[i]]) else NULL
+    })
+    p
 }
 
 #' The timeline length a track occupies, Gaps included
@@ -683,9 +690,15 @@
         # which is not compositing; leaving it unpadded lets the base show
         # around a differently shaped layer. Same-shaped layers (the
         # full-frame cutaway case) scale exactly and cover.
+        if (is.null(layers$transform)) {
+            tf <- NULL
+        } else {
+            tf <- layers$transform[[i]]
+        }
         parts <- c(parts, sprintf(
-                                  "[%d:v]scale=%d:%d:force_original_aspect_ratio=decrease,setpts=PTS-STARTPTS+%s/TB[ov%d]",
-                                  i, bw, bh, format(s, scientific = FALSE), i))
+                                  "[%d:v]%s,setpts=PTS-STARTPTS+%s/TB[ov%d]",
+                                  i, paste(.transform_chain(tf, bw, bh), collapse = ","),
+                                  format(s, scientific = FALSE), i))
         if (i == nrow(layers)) {
             out <- "[vout]"
         } else {
@@ -693,9 +706,22 @@
         }
         # eof_action=pass and repeatlast=0 so a finished overlay lets the
         # base through instead of freezing its last frame over it.
+        # Position is an offset from centred, so a clip with no transform
+        # sits where it always did.
+        if (is.null(tf)) {
+            px <- 0
+        } else {
+            px <- tf$pos_x
+        }
+        if (is.null(tf)) {
+            py <- 0
+        } else {
+            py <- tf$pos_y
+        }
         parts <- c(parts,
-                   sprintf("%s[ov%d]overlay=(W-w)/2:(H-h)/2:enable='between(t,%s,%s)':eof_action=pass:repeatlast=0%s",
-                           prev, i, format(s, scientific = FALSE),
+                   sprintf("%s[ov%d]overlay=(W-w)/2%+.0f:(H-h)/2%+.0f:enable='between(t,%s,%s)':eof_action=pass:repeatlast=0%s",
+                           prev, i, px, py,
+                           format(s, scientific = FALSE),
                            format(e, scientific = FALSE), out))
         prev <- out
     }
@@ -739,6 +765,100 @@
     p <- .track_placements(seq_v, files)
     list(layers = p, temps = pre$temps,
          span = max(p$start + p$dur) + seq_v$gaps[length(seq_v$gaps)])
+}
+
+#' A clip's compositing transform, or NULL when it is the identity
+#'
+#' Read from \code{metadata$cornball$transform}, falling back to
+#' \code{metadata$cornball$nle$transform} where an editor keeps it with the
+#' rest of its clip state. Fields: \code{pos_x}, \code{pos_y} (pixels from
+#' centred), \code{scale_x}, \code{scale_y} (multipliers), \code{rotation}
+#' (degrees clockwise), \code{opacity} (0-1).
+#'
+#' NULL for the identity so callers can take the cheap path: the common
+#' clip carries a transform that does nothing, and it should not cost a
+#' filter chain to say so.
+#'
+#' @param clip A rotio Clip.
+#' @return A named list of the six fields, or NULL.
+#' @keywords internal
+.clip_transform <- function(clip) {
+    md <- tryCatch(rotio::metadata(clip)$cornball, error = function(e) NULL)
+    tf <- md$transform
+    if (is.null(tf)) {
+        tf <- md$nle$transform
+    }
+    if (is.null(tf)) {
+        return(NULL)
+    }
+    # Spelled out rather than `%||%`: that operator is base R only from
+    # 4.4.0, this package sets no minimum, and one convenience is not
+    # worth a version floor.
+    num <- function(x, default) {
+        if (is.null(x)) {
+            return(default)
+        }
+        v <- suppressWarnings(as.numeric(x))
+        if (length(v) != 1L || !is.finite(v)) {
+            default
+        } else {
+            v
+        }
+    }
+    out <- list(pos_x = num(tf$pos_x, 0), pos_y = num(tf$pos_y, 0),
+                scale_x = num(tf$scale_x, 1), scale_y = num(tf$scale_y, 1),
+                rotation = num(tf$rotation, 0), opacity = num(tf$opacity, 1))
+    identity <- out$pos_x == 0 && out$pos_y == 0 && out$scale_x == 1 &&
+    out$scale_y == 1 && out$rotation == 0 && out$opacity == 1
+    if (identity) {
+        NULL
+    } else {
+        out
+    }
+}
+
+#' Filter chain placing one layer on the canvas under its transform
+#'
+#' Scale first, then rotate, then opacity, because each consumes the
+#' previous one's frame. Rotation and opacity force RGBA: a rotated layer
+#' has empty corners and a translucent one has to blend, and without an
+#' alpha channel both would come out as black painted over the base.
+#'
+#' @param tf A \code{.clip_transform()} result, or NULL.
+#' @param bw,bh Canvas size.
+#' @return Character vector of filters, in order.
+#' @keywords internal
+.transform_chain <- function(tf, bw, bh) {
+    if (is.null(tf)) {
+        sx <- 1
+    } else {
+        sx <- tf$scale_x
+    }
+    if (is.null(tf)) {
+        sy <- 1
+    } else {
+        sy <- tf$scale_y
+    }
+    fit <- sprintf("scale=%d:%d:force_original_aspect_ratio=decrease",
+                   max(2L, as.integer(round(bw * sx))),
+                   max(2L, as.integer(round(bh * sy))))
+    if (is.null(tf)) {
+        return(fit)
+    }
+    chain <- fit
+    if (tf$rotation != 0 || tf$opacity != 1) {
+        chain <- c(chain, "format=rgba")
+    }
+    if (tf$rotation != 0) {
+        # ow/oh grow to hold the rotated frame so corners are not cropped.
+        chain <- c(chain, sprintf(
+                                  "rotate=%.6f*PI/180:fillcolor=none:ow=rotw(%.6f*PI/180):oh=roth(%.6f*PI/180)",
+                                  tf$rotation, tf$rotation, tf$rotation))
+    }
+    if (tf$opacity != 1) {
+        chain <- c(chain, sprintf("colorchannelmixer=aa=%.6f", tf$opacity))
+    }
+    chain
 }
 
 #' Render silence to stand in for a Gap on an audio track
@@ -874,6 +994,20 @@
         .gap_clip(blank, total_gap, as.integer(canvas),
             if (is.na(seq_v$gap_fps)) 30 else seq_v$gap_fps)
         return(list(file = blank, temps = blank))
+    }
+    # The bottom track is concatenated, not composited, so there is no
+    # canvas to place a clip on and its transform has nowhere to apply.
+    # Compositing every track over a black canvas would fix that and cost
+    # the cheap concat path for the overwhelmingly common case of no
+    # transforms at all, so instead: say so, and let the editor move the
+    # clip up a track if it wants to place it.
+    with_tf <- vapply(seq_v$clips, function(k) !is.null(.clip_transform(k)),
+                      logical(1))
+    if (any(with_tf)) {
+        warning("render_timeline(): ", sum(with_tf), " clip(s) on the bottom ",
+                "video track carry a transform, which is only applied to ",
+                "composited layers; put them on a track above the bottom ",
+                "one to have it honored", call. = FALSE)
     }
     pre <- .prerender_sources(seq_v, framing, media_dir)
     temps <- pre$temps
