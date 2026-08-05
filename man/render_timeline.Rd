@@ -3,8 +3,14 @@
 \alias{render_timeline}
 \title{Render an OTIO Timeline to a Video File}
 \usage{
-render_timeline(timeline, output, media_dir = NULL, overwrite = TRUE,
-                dry_run = FALSE)
+render_timeline(
+  timeline,
+  output,
+  media_dir = NULL,
+  overwrite = TRUE,
+  dry_run = FALSE,
+  scale = 1
+)
 }
 \arguments{
 \item{timeline}{A rotio Timeline, or a path to a \code{.otio} file.}
@@ -21,6 +27,15 @@ the timeline file's directory when \code{timeline} is a path, otherwise NULL
 Note: concatenation of multiple video clips, still/sequence
 pre-renders, and layout composition still run, since they produce
 intermediates the final command depends on.}
+
+\item{scale}{Output scale factor in \code{(0, 1]}; 1 (the default) renders
+at full size. Lowering it makes a proxy: the picture is composed exactly
+as it would be at full size and downscaled by the last filter in the
+final pass, so a preview shows what the real render will look like.
+Note what this does NOT do -- still pre-renders, layout composition and
+concatenation all still happen at full size, so the saving is in the
+final encode and the file, not in the whole pipeline. Dimensions are
+rounded down to even numbers, which \code{yuv420p} requires.}
 }
 \value{
 Invisibly returns the output path. If dry_run, returns the command
