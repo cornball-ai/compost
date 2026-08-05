@@ -755,11 +755,10 @@
 #' @keywords internal
 .silence_clip <- function(output, duration, sample_rate, channels) {
     layout <- switch(as.character(channels), "1" = "mono", "2" = "stereo",
-                     stop("render_timeline(): audio must be mono or stereo",
-                          call. = FALSE))
+                     stop("render_timeline(): audio must be mono or stereo", call. = FALSE))
     .run_ffmpeg(c("-y", "-f", "lavfi", "-i",
-                  sprintf("anullsrc=r=%d:cl=%s", sample_rate, layout),
-                  "-t", format(duration, scientific = FALSE), output))
+                  sprintf("anullsrc=r=%d:cl=%s", sample_rate, layout), "-t",
+                  format(duration, scientific = FALSE), output))
     invisible(output)
 }
 
@@ -830,8 +829,7 @@
     }
     out <- tempfile(fileext = ".m4a")
     temps <- c(temps, out)
-    audio_concat(inputs, out, sample_rate = sr, channels = ch,
-                 overwrite = TRUE)
+    audio_concat(inputs, out, sample_rate = sr, channels = ch, overwrite = TRUE)
     list(file = out, temps = temps, bed = bed)
 }
 
