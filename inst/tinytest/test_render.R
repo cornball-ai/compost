@@ -667,3 +667,130 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
     expect_error(render_timeline(gonly, tempfile(fileext = ".mp4")),
                  "no frame size")
 }
+
+# --- the Stack composites bottom to top ---------------------------------------
+# Only vtracks[[1]] was assembled; every track above it was dropped, so a
+# cutaway or overlay track rendered as if it were not there.
+
+# Placement is order plus what precedes: Gaps included.
+pl_seq <- list(files = c("a.mp4", "b.mp4"), gaps = c(1, 2, 0.5),
+               durs = c(3, 4), windows = list(NULL, c(2, 6)))
+pl <- compost:::.track_placements(pl_seq, c("a.mp4", "b.mp4"))
+expect_equal(pl$start, c(1, 6))       # 1 + 3 + 2
+expect_equal(pl$dur, c(3, 4))
+expect_equal(pl$ss, c(NA, 2))         # the source in-point, or none
+# The span includes the trailing gap, which nothing else would notice.
+expect_equal(compost:::.track_span(pl_seq, c("a.mp4", "b.mp4")), 10.5)
+# A gap-only track still spans its gaps.
+expect_equal(compost:::.track_span(list(files = character(0), gaps = 4),
+                                   character(0)), 4)
+
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    st_solid <- function(dur, color) {
+        f <- tempfile(fileext = ".mp4")
+        system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi", "-i",
+                    sprintf("color=c=%s:s=128x128:r=30:d=%s", color, dur),
+                    "-c:v", "libx264", "-qp", "0", "-pix_fmt", "yuv420p", f)),
+                stdout = FALSE, stderr = FALSE)
+        f
+    }
+    st_rgb <- function(video, t) {
+        rf <- tempfile(fileext = ".raw")
+        on.exit(unlink(rf), add = TRUE)
+        system2("ffmpeg", shQuote(c("-nostdin", "-y", "-ss", format(t),
+                    "-i", video, "-frames:v", "1", "-pix_fmt", "rgb24",
+                    "-f", "rawvideo", rf)), stdout = FALSE, stderr = FALSE)
+        v <- as.integer(readBin(rf, "raw", file.size(rf)))
+        if (length(v) == 0L) {
+            return(c(NA_real_, NA_real_, NA_real_)) # no frame at that time
+        }
+        c(mean(v[seq(1, length(v), 3)]), mean(v[seq(2, length(v), 3)]),
+          mean(v[seq(3, length(v), 3)]))
+    }
+    st_clip <- function(f, d) {
+        Clip("c", ExternalReference(f),
+             source_range = TimeRange(RationalTime(0, 30),
+                                      RationalTime(d * 30, 30)))
+    }
+    st_render <- function(lower, upper) {
+        t <- Timeline("stack")
+        lo <- Track("V1", kind = "Video")
+        for (k in lower) append_child(lo, k)
+        up <- Track("V2", kind = "Video")
+        for (k in upper) append_child(up, k)
+        append_child(tracks(t), lo)
+        append_child(tracks(t), up)
+        o <- tempfile(fileext = ".mp4")
+        render_timeline(t, o)
+        o
+    }
+    st_red <- st_solid(6, "red")
+    st_grn <- st_solid(2, "green")
+
+    # The filtergraph places each layer over its own range and no other.
+    # This needs a real base: the canvas size is read off it, so an empty
+    # fixture file cannot stand in.
+    cs <- compost:::.compose_stack(
+            st_red, data.frame(file = st_grn, start = 2, dur = 2,
+                               ss = NA_real_),
+            tempfile(fileext = ".mp4"), dry_run = TRUE)
+    expect_true(grepl("setpts=PTS-STARTPTS+2/TB", cs, fixed = TRUE))
+    expect_true(grepl("enable='between(t,2,4)'", cs, fixed = TRUE))
+    # A finished overlay lets the base through instead of freezing over it.
+    expect_true(grepl("eof_action=pass", cs, fixed = TRUE))
+    expect_true(grepl("repeatlast=0", cs, fixed = TRUE))
+    # Trimmed at the input, so only the wanted span is decoded.
+    cs2 <- compost:::.compose_stack(
+            st_red, data.frame(file = st_grn, start = 0, dur = 2, ss = 5),
+            tempfile(fileext = ".mp4"), dry_run = TRUE)
+    expect_true(grepl("-ss 5", cs2, fixed = TRUE))
+    # Padding to the timeline length is black, not a cloned last frame.
+    cs3 <- compost:::.compose_stack(
+            st_red, data.frame(file = st_grn, start = 7, dur = 2,
+                               ss = NA_real_),
+            tempfile(fileext = ".mp4"), duration = 9, dry_run = TRUE)
+    expect_true(grepl("tpad=stop_mode=add:color=black", cs3, fixed = TRUE))
+
+    # PARTIAL coverage, deliberately: an upper track that covered the
+    # whole base would pass even for an implementation that just picked
+    # the top track and ignored the bottom.
+    o_part <- st_render(list(st_clip(st_red, 6)),
+                        list(Gap(RationalTime(60, 30)), st_clip(st_grn, 2)))
+    expect_true(abs(as.numeric(probe(o_part, "duration")) - 6) < 0.15)
+    expect_true(st_rgb(o_part, 1)[1] > 180)   # base before the overlay
+    expect_true(st_rgb(o_part, 3)[2] > 90 && st_rgb(o_part, 3)[1] < 40)
+    expect_true(st_rgb(o_part, 5)[1] > 180)   # base again after it
+
+    # The timeline runs as long as its LONGEST track. With a 2s base and
+    # an upper clip at 4-6s the render used to stop at 2s and the overlay
+    # never appeared at all.
+    st_red2 <- st_solid(2, "red")
+    o_long <- st_render(list(st_clip(st_red2, 2)),
+                        list(Gap(RationalTime(120, 30)), st_clip(st_grn, 2)))
+    expect_true(abs(as.numeric(probe(o_long, "duration")) - 6) < 0.15)
+    expect_true(st_rgb(o_long, 1)[1] > 180)   # base
+    expect_true(all(st_rgb(o_long, 3) < 20))  # padded black, not cloned red
+    expect_true(st_rgb(o_long, 5)[2] > 90)    # the overlay really is there
+    unlink(c(st_red, st_grn, st_red2, o_part, o_long))
+}
+
+# A layout binds tracks to slots, so extra unroled tracks have nowhere to
+# go. They used to vanish in silence.
+lay_tl <- Timeline("laid")
+metadata(lay_tl) <- list(cornball = list(layout = list(
+        schema = 1L, canvas = c(64L, 64L),
+        slots = list(visual = list(rect = c(0, 0, 64, 64), fit = "fit")))))
+lv1 <- Track("V1", kind = "Video")
+append_child(lv1, Clip("a", ExternalReference("primary.mp4"),
+                       source_range = TimeRange(RationalTime(0, 30),
+                                                RationalTime(60, 30))))
+lv2 <- Track("V2", kind = "Video")
+append_child(lv2, Clip("b", ExternalReference("primary.mp4"),
+                       source_range = TimeRange(RationalTime(0, 30),
+                                                RationalTime(60, 30))))
+append_child(tracks(lay_tl), lv1)
+append_child(tracks(lay_tl), lv2)
+expect_warning(try(render_timeline(lay_tl, file.path(dir, "lay.mp4"),
+                                   media_dir = dir, dry_run = TRUE),
+                   silent = TRUE),
+               "unroled video track")

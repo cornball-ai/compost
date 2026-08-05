@@ -132,6 +132,7 @@
     fades <- numeric(0)
     clips <- list()
     gaps <- numeric(0)
+    durs <- numeric(0)
     pending <- 0
     pending_gap <- 0
     gap_fps <- NA_real_
@@ -225,6 +226,15 @@
             }
         }
         files <- c(files, u)
+        # How long the clip plays on the timeline. NA when it has no
+        # source_range (it feeds its whole file, whose length is not known
+        # until the media is probed); the composite resolves those after
+        # pre-rendering, when even a still has a real duration.
+        durs <- c(durs, if (is.null(sr)) {
+            NA_real_
+        } else {
+            rotio::to_seconds(sr$duration)
+        })
         if (length(files) > 1) {
             fades <- c(fades, fade)
         }
@@ -240,7 +250,7 @@
     # left implicit in "the track ended".
     gaps <- c(gaps, pending_gap)
     list(files = files, windows = windows, fades = fades, clips = clips,
-         gap_fps = gap_fps,
+         gap_fps = gap_fps, durs = durs,
          gaps = gaps)
 }
 
@@ -561,6 +571,164 @@
     list(files = files, windows = windows, fades = fades, temps = temps)
 }
 
+#' Where each of a track's clips sits on the timeline
+#'
+#' A Track is a sequence: a child's start is the sum of what precedes it,
+#' Gaps included. This turns the walk plus the pre-rendered files into
+#' absolute placements, resolving any duration the walk could not know.
+#'
+#' @param seq_v A \code{.video_sequence()} result.
+#' @param files The pre-rendered files, parallel to \code{seq_v$files}.
+#' @return data.frame of \code{file}, \code{start}, \code{dur}, and the
+#'   source in-point \code{ss} (NA for no trim), one row per clip.
+#' @keywords internal
+.track_placements <- function(seq_v, files) {
+    n <- length(files)
+    durs <- seq_v$durs
+    if (length(durs) != n) {
+        durs <- rep(NA_real_, n)
+    }
+    for (i in seq_len(n)) {
+        if (!isTRUE(is.finite(durs[i]))) {
+            # No source_range: the clip feeds its whole file, and after
+            # pre-rendering even a still has a real length to read.
+            durs[i] <- as.numeric(probe(files[i], "duration"))
+        }
+    }
+    if (any(!is.finite(durs))) {
+        stop("render_timeline(): could not determine the duration of ",
+             sum(!is.finite(durs)), " clip(s)", call. = FALSE)
+    }
+    starts <- numeric(n)
+    at <- 0
+    for (i in seq_len(n)) {
+        at <- at + seq_v$gaps[i]
+        starts[i] <- at
+        at <- at + durs[i]
+    }
+    ss <- vapply(seq_v$windows, function(w) {
+        if (is.null(w)) NA_real_ else w[1]
+    }, 0)
+    data.frame(file = files, start = starts, dur = durs, ss = ss,
+               stringsAsFactors = FALSE)
+}
+
+#' The timeline length a track occupies, Gaps included
+#' @param seq_v A \code{.video_sequence()} result.
+#' @param files The pre-rendered files.
+#' @keywords internal
+.track_span <- function(seq_v, files) {
+    if (length(files) == 0) {
+        return(sum(seq_v$gaps))
+    }
+    p <- .track_placements(seq_v, files)
+    max(p$start + p$dur) + seq_v$gaps[length(seq_v$gaps)]
+}
+
+#' Paint upper tracks onto a base, each clip over its own time range
+#'
+#' The Stack's composition rule: later tracks paint over earlier ones, and
+#' a clip is visible exactly during its range. Placement is temporal, so
+#' no transparency is needed anywhere -- an upper track's Gap is simply a
+#' span with no overlay enabled over it, which is also why gap filler is
+#' only ever generated for the base.
+#'
+#' @param base Assembled bottom track (the canvas).
+#' @param layers data.frame of placements, bottom-to-top paint order.
+#' @param output Output path.
+#' @param dry_run If TRUE, return the command instead of running it.
+#' @return \code{output}, invisibly (or the command string).
+#' @keywords internal
+.compose_stack <- function(base, layers, output, duration = NULL,
+                           dry_run = FALSE) {
+    bw <- as.integer(probe(base, "width"))
+    bh <- as.integer(probe(base, "height"))
+    ins <- c("-i", base)
+    parts <- character(0)
+    prev <- "[0:v]"
+    # The timeline runs as long as its longest track, not as long as the
+    # bottom one. Without this an upper track that outlasts the base is
+    # simply cut off -- the render stops when the base does and the
+    # overlay never appears. Padded with black rather than a cloned last
+    # frame: past the end of a track's content there is nothing there.
+    if (!is.null(duration)) {
+        bd <- as.numeric(probe(base, "duration"))
+        if (isTRUE(is.finite(bd)) && duration > bd + 1e-3) {
+            parts <- c(parts, sprintf(
+                    "[0:v]tpad=stop_mode=add:color=black:stop_duration=%s[bg0]",
+                    format(duration - bd, scientific = FALSE)))
+            prev <- "[bg0]"
+        }
+    }
+    for (i in seq_len(nrow(layers))) {
+        # Trim at the input rather than in the graph: -ss before -i seeks
+        # the demuxer, so only the wanted span is decoded.
+        if (is.finite(layers$ss[i])) {
+            ins <- c(ins, "-ss", format(layers$ss[i], scientific = FALSE))
+        }
+        ins <- c(ins, "-t", format(layers$dur[i], scientific = FALSE),
+                 "-i", layers$file[i])
+        s <- layers$start[i]
+        e <- s + layers$dur[i]
+        # Fit to the canvas without padding, then centre. Padding would
+        # paint black over the base wherever the overlay letterboxes,
+        # which is not compositing; leaving it unpadded lets the base show
+        # around a differently shaped layer. Same-shaped layers (the
+        # full-frame cutaway case) scale exactly and cover.
+        parts <- c(parts, sprintf(
+                                  "[%d:v]scale=%d:%d:force_original_aspect_ratio=decrease,setpts=PTS-STARTPTS+%s/TB[ov%d]",
+                                  i, bw, bh, format(s, scientific = FALSE), i))
+        out <- if (i == nrow(layers)) "[vout]" else sprintf("[bg%d]", i)
+        # eof_action=pass and repeatlast=0 so a finished overlay lets the
+        # base through instead of freezing its last frame over it.
+        parts <- c(parts,
+                   sprintf("%s[ov%d]overlay=(W-w)/2:(H-h)/2:enable='between(t,%s,%s)':eof_action=pass:repeatlast=0%s",
+                           prev, i, format(s, scientific = FALSE),
+                           format(e, scientific = FALSE), out))
+        prev <- out
+    }
+    # With no layers to paint there is no [vout]: the graph is whatever
+    # the padding left behind, and with no padding either there is no
+    # graph at all. Map the last label rather than assuming one.
+    if (length(parts) == 0L) {
+        graph <- character(0)
+    } else {
+        graph <- c("-filter_complex", paste(parts, collapse = ";"))
+    }
+    args <- c("-y", ins, graph, "-map", prev, "-c:v", "libx264",
+              "-preset", "fast", "-pix_fmt", "yuv420p",
+              "-movflags", "+faststart", output)
+    if (dry_run) {
+        return(.run_ffmpeg(args, dry_run = TRUE))
+    }
+    .run_ffmpeg(args)
+    invisible(output)
+}
+
+#' Walk, pre-render and place one track's clips for compositing
+#'
+#' The upper-track counterpart to \code{.assemble_track()}: the clips stay
+#' separate rather than being concatenated, because each is painted over
+#' its own span.
+#'
+#' @param track A rotio video Track.
+#' @param media_dir Base directory for relative urls, or NULL.
+#' @return list(layers, temps, span); \code{layers} is NULL when the track
+#'   has no clips.
+#' @keywords internal
+.track_layers <- function(track, media_dir) {
+    seq_v <- .video_sequence(track, media_dir)
+    if (length(seq_v$files) == 0) {
+        return(list(layers = NULL, temps = character(0),
+                    span = sum(seq_v$gaps)))
+    }
+    pre <- .prerender_sources(seq_v, NULL, media_dir)
+    files <- normalizePath(pre$files, mustWork = TRUE)
+    p <- .track_placements(seq_v, files)
+    list(layers = p, temps = pre$temps,
+         span = max(p$start + p$dur) + seq_v$gaps[length(seq_v$gaps)])
+}
+
 #' Assemble one video track into a single renderable file
 #'
 #' The track walk + still/sequence pre-render + gap fill +
@@ -765,6 +933,53 @@ render_timeline <- function(timeline, output, media_dir = NULL,
         on.exit(unlink(base$temps), add = TRUE)
     }
     base_video <- base$file
+
+    # The Stack composites bottom to top. Tracks above the first were
+    # dropped entirely before this, so a cutaway or overlay track rendered
+    # as if it were not there. The layout path is untouched: when the
+    # timeline binds tracks to named slots, that binding decides
+    # everything and this does not run.
+    if (!is.null(layout) && length(vtracks) > 1) {
+        # Slot binding decides the picture, so extra unroled tracks have
+        # nowhere to go. They were being dropped in silence; say so.
+        warning("render_timeline(): the layout binds tracks to slots, so ",
+                length(vtracks) - 1L, " unroled video track(s) are not ",
+                "composed; give them a role with a slot, or render ",
+                "without a layout", call. = FALSE)
+    }
+    if (is.null(layout) && length(vtracks) > 1) {
+        stack_layers <- list()
+        spans <- numeric(0)
+        for (k in seq_along(vtracks)[-1]) {
+            up <- .track_layers(vtracks[[k]], media_dir)
+            if (length(up$temps) > 0) {
+                on.exit(unlink(up$temps), add = TRUE)
+            }
+            spans <- c(spans, up$span)
+            if (!is.null(up$layers)) {
+                stack_layers <- c(stack_layers, list(up$layers))
+            }
+        }
+        # As long as the longest track. A track that is nothing but Gap
+        # contributes its span here even though it paints nothing, which
+        # is the same rule as everywhere else: a Gap occupies time.
+        base_dur <- as.numeric(probe(base_video, "duration"))
+        total <- max(c(base_dur, spans), na.rm = TRUE)
+        if (length(stack_layers) > 0 ||
+            isTRUE(total > base_dur + 1e-3)) {
+            composed <- tempfile(fileext = ".mp4")
+            on.exit(unlink(composed), add = TRUE)
+            .compose_stack(base_video,
+                           if (length(stack_layers) > 0) {
+                               do.call(rbind, stack_layers)
+                           } else {
+                               data.frame(file = character(0),
+                                          start = numeric(0),
+                                          dur = numeric(0), ss = numeric(0))
+                           }, composed, duration = total)
+            base_video <- composed
+        }
+    }
 
     # Layout composition: paint the content and each slot track onto the
     # canvas. The composed base is video-only, so the narration-bed mapping
