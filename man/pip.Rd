@@ -3,9 +3,16 @@
 \alias{pip}
 \title{Picture-in-Picture Corner Overlay}
 \usage{
-pip(background, foreground, output, scale = 0.604, margin = 230,
-    corner = c("upper-right", "upper-left", "lower-right", "lower-left"),
-    overwrite = TRUE, dry_run = FALSE)
+pip(
+  background,
+  foreground,
+  output,
+  scale = 0.604,
+  margin = 230,
+  corner = c("upper-right", "upper-left", "lower-right", "lower-left"),
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{background}{Path to background video or image.}

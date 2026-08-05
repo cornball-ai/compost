@@ -3,8 +3,16 @@
 \alias{still_clip}
 \title{Render a Still Image as a Video Clip}
 \usage{
-still_clip(image, output, duration, fps = 30, size = NULL, motion = NULL,
-           overwrite = TRUE, dry_run = FALSE)
+still_clip(
+  image,
+  output,
+  duration,
+  fps = 30,
+  size = NULL,
+  motion = NULL,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{image}{Path to the input image (png, jpg, ...).}

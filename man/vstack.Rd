@@ -3,8 +3,16 @@
 \alias{vstack}
 \title{Vertically Stack Two Videos}
 \usage{
-vstack(top, bottom, output, height_top = NULL, height_bottom = NULL,
-       width = 1080, overwrite = TRUE, dry_run = FALSE)
+vstack(
+  top,
+  bottom,
+  output,
+  height_top = NULL,
+  height_bottom = NULL,
+  width = 1080,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{top}{Path to top video.}

@@ -3,8 +3,17 @@
 \alias{audio_concat}
 \title{Concatenate Audio Files with Exact Silence Gaps}
 \usage{
-audio_concat(inputs, output, gap = 0, tail = 0, sample_rate = NULL,
-             channels = NULL, bitrate = NULL, overwrite = TRUE, dry_run = FALSE)
+audio_concat(
+  inputs,
+  output,
+  gap = 0,
+  tail = 0,
+  sample_rate = NULL,
+  channels = NULL,
+  bitrate = NULL,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{inputs}{Character vector of audio file paths, in order.}

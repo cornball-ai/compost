@@ -3,9 +3,17 @@
 \alias{crossfade_concat}
 \title{Crossfade-concatenate clips, optionally overlaying one audio track}
 \usage{
-crossfade_concat(videos, output, fade = 0.375, audio = NULL,
-                 transition = "dissolve", cuts = NULL, windows = NULL,
-                 overwrite = TRUE, dry_run = FALSE)
+crossfade_concat(
+  videos,
+  output,
+  fade = 0.375,
+  audio = NULL,
+  transition = "dissolve",
+  cuts = NULL,
+  windows = NULL,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{videos}{Character vector of video paths, in order. Must share

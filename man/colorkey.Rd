@@ -3,8 +3,16 @@
 \alias{colorkey}
 \title{Colour-Key to a ProRes 4444 File with Alpha}
 \usage{
-colorkey(input, output, color = "auto", similarity = 0.15, blend = 0.05,
-         sample_xy = c(0, 0), overwrite = TRUE, dry_run = FALSE)
+colorkey(
+  input,
+  output,
+  color = "auto",
+  similarity = 0.15,
+  blend = 0.05,
+  sample_xy = c(0, 0),
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{input}{Path to input video.}

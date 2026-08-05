@@ -3,8 +3,13 @@
 \alias{.broadcast_audio_filter}
 \title{Build the -af filter graph for the broadcast-clean chain}
 \usage{
-.broadcast_audio_filter(dehum = TRUE, target_lufs = -14, fade = 0.06,
-                        duration = NULL, highpass = 80)
+.broadcast_audio_filter(
+  dehum = TRUE,
+  target_lufs = -14,
+  fade = 0.06,
+  duration = NULL,
+  highpass = 80
+)
 }
 \arguments{
 \item{dehum}{Include the hum notches + FFT denoise.}

@@ -3,8 +3,17 @@
 \alias{overlay}
 \title{Overlay Foreground onto Background}
 \usage{
-overlay(background, foreground, output, x = 0, y = 0, scale = NULL,
-        shortest = TRUE, overwrite = TRUE, dry_run = FALSE)
+overlay(
+  background,
+  foreground,
+  output,
+  x = 0,
+  y = 0,
+  scale = NULL,
+  shortest = TRUE,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{background}{Path to background video or image.}

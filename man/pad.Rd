@@ -3,9 +3,19 @@
 \alias{pad}
 \title{Scale to Fit and Pad onto a Canvas}
 \usage{
-pad(input, output, width, height, fit_width = width, fit_height = height,
-    x = "(ow-iw)/2", y = "(oh-ih)/2", color = "black", overwrite = TRUE,
-    dry_run = FALSE)
+pad(
+  input,
+  output,
+  width,
+  height,
+  fit_width = width,
+  fit_height = height,
+  x = "(ow-iw)/2",
+  y = "(oh-ih)/2",
+  color = "black",
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{color}{Pad color (default \code{"black"}).}

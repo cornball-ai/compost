@@ -3,8 +3,16 @@
 \alias{hstack}
 \title{Horizontally Stack Two Videos}
 \usage{
-hstack(left, right, output, width_left = NULL, width_right = NULL,
-       height = 1080, overwrite = TRUE, dry_run = FALSE)
+hstack(
+  left,
+  right,
+  output,
+  width_left = NULL,
+  width_right = NULL,
+  height = 1080,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{left}{Path to left video.}

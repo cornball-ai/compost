@@ -3,8 +3,16 @@
 \alias{audio_convert}
 \title{Convert an Audio File}
 \usage{
-audio_convert(input, output, sample_rate = NULL, channels = NULL,
-              bitrate = NULL, codec = NULL, overwrite = TRUE, dry_run = FALSE)
+audio_convert(
+  input,
+  output,
+  sample_rate = NULL,
+  channels = NULL,
+  bitrate = NULL,
+  codec = NULL,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{input}{Path to input audio (or A/V) file.}

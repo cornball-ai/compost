@@ -3,8 +3,19 @@
 \alias{zoom}
 \title{Zoom Video with Stepped Levels}
 \usage{
-zoom(input, output, stt, amount = 0.05, levels = 3, transition = 0.3,
-     seed = NULL, width = NULL, height = NULL, overwrite = TRUE, dry_run = FALSE)
+zoom(
+  input,
+  output,
+  stt,
+  amount = 0.05,
+  levels = 3,
+  transition = 0.3,
+  seed = NULL,
+  width = NULL,
+  height = NULL,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{input}{Path to input video.}

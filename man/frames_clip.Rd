@@ -3,8 +3,16 @@
 \alias{frames_clip}
 \title{Encode a Numbered Frame Sequence as a Video Clip}
 \usage{
-frames_clip(dir, output, fps = 30, pattern = "frame_\%04d.png", start = 1L,
-            size = NULL, overwrite = TRUE, dry_run = FALSE)
+frames_clip(
+  dir,
+  output,
+  fps = 30,
+  pattern = "frame_\%04d.png",
+  start = 1L,
+  size = NULL,
+  overwrite = TRUE,
+  dry_run = FALSE
+)
 }
 \arguments{
 \item{dir}{Directory holding the frames.}
