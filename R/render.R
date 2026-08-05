@@ -113,18 +113,28 @@
 #' in_offset so the dissolve has its handle), and per-join fade durations
 #' (0 = butt join). A clip without a source_range feeds the whole file.
 #'
+#' A \code{Gap} occupies time and shows nothing, so its duration is
+#' collected rather than skipped: dropping it does not ignore an empty
+#' region, it deletes time and slides every later clip earlier.
+#'
 #' @param track A rotio video Track.
 #' @param media_dir Base directory for relative urls, or NULL.
-#' @return list(files, windows, fades, clips). A Clip over an
-#'   ImageSequenceReference contributes an NA file, filled in by
-#'   \code{.prerender_sources()}.
+#' @return list(files, windows, fades, clips, gaps, gap_fps). A Clip over
+#'   an ImageSequenceReference contributes an NA file, filled in by
+#'   \code{.prerender_sources()}. \code{gaps} has one more entry than
+#'   \code{files}: the blank seconds before each clip, then the trailing
+#'   blank. \code{gap_fps} is the rate of the first Gap seen (NA when
+#'   there is none), which is the only rate a gap-only track can supply.
 #' @keywords internal
 .video_sequence <- function(track, media_dir = NULL) {
     files <- character(0)
     windows <- list()
     fades <- numeric(0)
     clips <- list()
+    gaps <- numeric(0)
     pending <- 0
+    pending_gap <- 0
+    gap_fps <- NA_real_
     for (kd in rotio::children(track)) {
         if (inherits(kd, "Transition")) {
             if (rotio::to_seconds(kd$out_offset) > 0) {
@@ -133,6 +143,27 @@
                      "handle)", call. = FALSE)
             }
             pending <- rotio::to_seconds(kd$in_offset)
+            next
+        }
+        if (inherits(kd, "Gap")) {
+            gsr <- tryCatch(rotio::source_range(kd), error = function(e) NULL)
+            if (!is.null(gsr)) {
+                gd <- rotio::to_seconds(gsr$duration)
+                if (isTRUE(is.finite(gd)) && gd > 0) {
+                    pending_gap <- pending_gap + gd
+                    # A Gap's duration is rational, so it carries its own
+                    # rate. That is the only frame rate a track of nothing
+                    # but Gap can supply, and taking it beats inventing a
+                    # default when one has to be materialized.
+                    if (is.na(gap_fps)) {
+                        gr <- tryCatch(rotio::rate(gsr$duration),
+                                       error = function(e) NA_real_)
+                        if (isTRUE(is.finite(gr)) && gr > 0) {
+                            gap_fps <- gr
+                        }
+                    }
+                }
+            }
             next
         }
         if (!inherits(kd, "Clip")) {
@@ -200,8 +231,17 @@
         # c(list(win)) rather than [[<-: assigning NULL would drop the slot.
         windows <- c(windows, list(win))
         clips <- c(clips, list(kd))
+        gaps <- c(gaps, pending_gap)
+        pending_gap <- 0
     }
-    list(files = files, windows = windows, fades = fades, clips = clips)
+    # The trailing entry: blank after the last clip. It has no successor to
+    # reveal that it went missing, so nothing but a duration check catches
+    # its loss -- which is why it is carried explicitly rather than being
+    # left implicit in "the track ended".
+    gaps <- c(gaps, pending_gap)
+    list(files = files, windows = windows, fades = fades, clips = clips,
+         gap_fps = gap_fps,
+         gaps = gaps)
 }
 
 #' Motion spec from a clip's OTIO effects
@@ -436,10 +476,96 @@
     NULL
 }
 
+#' Render blank video to stand in for a Gap
+#'
+#' Matched to the neighbouring clips' geometry and rate so the result
+#' concatenates with them, and encoded exactly as \code{\link{still_clip}}
+#' encodes a slide, for the same reason.
+#'
+#' Black, not transparent: assembling one track flat has nothing to show
+#' through. When track compositing lands, a gap on an upper track has to
+#' become transparent instead, and this is the function that changes.
+#'
+#' @param output Output path.
+#' @param duration Seconds of blank.
+#' @param size Integer width/height.
+#' @param fps Frame rate.
+#' @return \code{output}, invisibly.
+#' @keywords internal
+.gap_clip <- function(output, duration, size, fps) {
+    n_frames <- as.integer(round(duration * fps))
+    if (is.na(n_frames) || n_frames < 1L) {
+        stop("render_timeline(): a gap of ", duration,
+             "s is shorter than one frame at ", fps, " fps", call. = FALSE)
+    }
+    .run_ffmpeg(c("-y", "-f", "lavfi", "-i",
+                  sprintf("color=c=black:s=%dx%d:r=%s", size[1], size[2], fps),
+                  "-frames:v", n_frames, "-vf", "format=yuv420p,setsar=1",
+                  "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                  "-movflags", "+faststart", output))
+    invisible(output)
+}
+
+#' Splice blank video in where the track carries Gaps
+#'
+#' @param vclips Character vector of assembled clip files, in order.
+#' @param seq_v The \code{.video_sequence()} result.
+#' @return list(files, windows, fades, temps) with filler interleaved, or
+#'   the inputs unchanged when the track has no gaps.
+#' @keywords internal
+.splice_gaps <- function(vclips, seq_v) {
+    gaps <- seq_v$gaps
+    plain <- list(files = vclips, windows = seq_v$windows,
+                  fades = seq_v$fades, temps = character(0))
+    if (is.null(gaps) || !any(gaps > 0)) {
+        return(plain)
+    }
+    # A dissolve needs its two clips adjacent. Blank between them is not a
+    # join at all, so say so rather than fading into filler.
+    if (length(seq_v$fades) > 0 && any(seq_v$fades > 0 &
+                                       gaps[seq_along(seq_v$fades) + 1L] > 0)) {
+        stop("render_timeline(): a Transition spans a Gap; there is nothing ",
+             "on the other side to dissolve into", call. = FALSE)
+    }
+    ref <- vclips[[1]]
+    size <- c(as.integer(probe(ref, "width")), as.integer(probe(ref, "height")))
+    fps <- .video_fps(ref)
+    files <- character(0)
+    windows <- list()
+    fades <- numeric(0)
+    temps <- character(0)
+    add <- function(f, w, fd) {
+        if (length(files) > 0) {
+            fades <<- c(fades, fd)
+        }
+        files <<- c(files, f)
+        windows <<- c(windows, list(w))
+    }
+    for (i in seq_along(vclips)) {
+        if (gaps[i] > 0) {
+            blank <- tempfile(fileext = ".mp4")
+            .gap_clip(blank, gaps[i], size, fps)
+            temps <- c(temps, blank)
+            add(blank, NULL, 0)
+        }
+        add(vclips[[i]], seq_v$windows[[i]],
+            if (i > 1L) seq_v$fades[i - 1L] else 0)
+    }
+    tail_gap <- gaps[length(gaps)]
+    if (tail_gap > 0) {
+        blank <- tempfile(fileext = ".mp4")
+        .gap_clip(blank, tail_gap, size, fps)
+        temps <- c(temps, blank)
+        add(blank, NULL, 0)
+    }
+    list(files = files, windows = windows, fades = fades, temps = temps)
+}
+
 #' Assemble one video track into a single renderable file
 #'
-#' The track walk + still/sequence pre-render + passthrough/concat/crossfade
-#' pipeline, shared by the content track and layout slot tracks.
+#' The track walk + still/sequence pre-render + gap fill +
+#' passthrough/concat/crossfade pipeline, shared by the content track and
+#' layout slot tracks.
 #'
 #' @param track A rotio video Track.
 #' @param media_dir Base directory for relative urls, or NULL.
@@ -449,13 +575,45 @@
 .assemble_track <- function(track, media_dir, framing) {
     seq_v <- .video_sequence(track, media_dir)
     if (length(seq_v$files) == 0) {
-        return(NULL)
+        total_gap <- sum(seq_v$gaps)
+        if (!isTRUE(total_gap > 0)) {
+            return(NULL) # genuinely nothing on this track
+        }
+        # A track of nothing but Gap still occupies time. Returning NULL
+        # here would drop that duration silently, which is the exact
+        # failure this whole change exists to remove -- so it either gets
+        # materialized or refused, never omitted.
+        #
+        # Black needs a frame size and there is no clip to take one from.
+        # The framing canvas is the only honest source; inventing a
+        # default would render at a resolution nobody asked for, which is
+        # how the head-trim heuristic went wrong. The rate comes from the
+        # Gap's own rational duration, so at least that is never guessed.
+        canvas <- framing$pad
+        if (is.null(canvas) || length(canvas) != 2L ||
+            !all(is.finite(as.numeric(canvas)))) {
+            stop("render_timeline(): track '", rotio::name(track),
+                 "' holds ", format(round(total_gap, 3)),
+                 "s of Gap and no clips, so there is no frame size to ",
+                 "render it at; give the timeline a cornball framing pad ",
+                 "or put a clip on the track", call. = FALSE)
+        }
+        blank <- tempfile(fileext = ".mp4")
+        .gap_clip(blank, total_gap, as.integer(canvas),
+            if (is.na(seq_v$gap_fps)) 30 else seq_v$gap_fps)
+        return(list(file = blank, temps = blank))
     }
     pre <- .prerender_sources(seq_v, framing, media_dir)
     temps <- pre$temps
     vclips <- normalizePath(pre$files, mustWork = TRUE)
-    trivial <- all(seq_v$fades == 0) &&
-    all(vapply(seq_v$windows, is.null, logical(1)))
+    # Gaps are filled after pre-rendering, so the filler can be matched to
+    # real files: a still or an image sequence has no geometry to copy
+    # until it has been encoded.
+    sp <- .splice_gaps(vclips, seq_v)
+    vclips <- sp$files
+    temps <- c(temps, sp$temps)
+    trivial <- all(sp$fades == 0) &&
+    all(vapply(sp$windows, is.null, logical(1)))
     if (length(vclips) == 1 && trivial) {
         file <- vclips[[1]]
     } else if (trivial) {
@@ -467,8 +625,8 @@
         file <- tempfile(fileext = ".mp4")
         temps <- c(temps, file)
         crossfade_concat(vclips, file,
-                         fade = if (length(seq_v$fades)) seq_v$fades else 0,
-                         windows = seq_v$windows, overwrite = TRUE)
+                         fade = if (length(sp$fades)) sp$fades else 0,
+                         windows = sp$windows, overwrite = TRUE)
     }
     list(file = file, temps = temps)
 }
