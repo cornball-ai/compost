@@ -133,6 +133,7 @@
     gaps <- numeric(0)
     pending <- 0
     pending_gap <- 0
+    gap_fps <- NA_real_
     for (kd in rotio::children(track)) {
         if (inherits(kd, "Transition")) {
             if (rotio::to_seconds(kd$out_offset) > 0) {
@@ -149,6 +150,17 @@
                 gd <- rotio::to_seconds(gsr$duration)
                 if (isTRUE(is.finite(gd)) && gd > 0) {
                     pending_gap <- pending_gap + gd
+                    # A Gap's duration is rational, so it carries its own
+                    # rate. That is the only frame rate a track of nothing
+                    # but Gap can supply, and taking it beats inventing a
+                    # default when one has to be materialized.
+                    if (is.na(gap_fps)) {
+                        gr <- tryCatch(rotio::rate(gsr$duration),
+                                       error = function(e) NA_real_)
+                        if (isTRUE(is.finite(gr)) && gr > 0) {
+                            gap_fps <- gr
+                        }
+                    }
                 }
             }
             next
@@ -227,6 +239,7 @@
     # left implicit in "the track ended".
     gaps <- c(gaps, pending_gap)
     list(files = files, windows = windows, fades = fades, clips = clips,
+         gap_fps = gap_fps,
          gaps = gaps)
 }
 
@@ -561,7 +574,33 @@
 .assemble_track <- function(track, media_dir, framing) {
     seq_v <- .video_sequence(track, media_dir)
     if (length(seq_v$files) == 0) {
-        return(NULL)
+        total_gap <- sum(seq_v$gaps)
+        if (!isTRUE(total_gap > 0)) {
+            return(NULL) # genuinely nothing on this track
+        }
+        # A track of nothing but Gap still occupies time. Returning NULL
+        # here would drop that duration silently, which is the exact
+        # failure this whole change exists to remove -- so it either gets
+        # materialized or refused, never omitted.
+        #
+        # Black needs a frame size and there is no clip to take one from.
+        # The framing canvas is the only honest source; inventing a
+        # default would render at a resolution nobody asked for, which is
+        # how the head-trim heuristic went wrong. The rate comes from the
+        # Gap's own rational duration, so at least that is never guessed.
+        canvas <- framing$pad
+        if (is.null(canvas) || length(canvas) != 2L ||
+            !all(is.finite(as.numeric(canvas)))) {
+            stop("render_timeline(): track '", rotio::name(track),
+                 "' holds ", format(round(total_gap, 3)),
+                 "s of Gap and no clips, so there is no frame size to ",
+                 "render it at; give the timeline a cornball framing pad ",
+                 "or put a clip on the track", call. = FALSE)
+        }
+        blank <- tempfile(fileext = ".mp4")
+        .gap_clip(blank, total_gap, as.integer(canvas),
+                  if (is.na(seq_v$gap_fps)) 30 else seq_v$gap_fps)
+        return(list(file = blank, temps = blank))
     }
     pre <- .prerender_sources(seq_v, framing, media_dir)
     temps <- pre$temps

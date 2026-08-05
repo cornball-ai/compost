@@ -625,3 +625,45 @@ expect_error(compost:::.splice_gaps(c("a.mp4", "b.mp4"),
                                          windows = list(NULL, NULL),
                                          fades = 0.5)),
              "spans a Gap")
+
+# --- REVIEW (#27): a track of nothing but Gap ---------------------------------
+# .video_sequence() recorded the gap correctly, but .assemble_track()
+# returned NULL on `length(files) == 0` and the duration vanished. That is
+# the same silent omission the Gap work exists to remove, so it now either
+# materializes or refuses -- never disappears.
+sq_only <- compost:::.video_sequence(gtrk(Gap(RationalTime(90, 30))), NULL)
+expect_equal(length(sq_only$files), 0L)
+expect_equal(sq_only$gaps, 3)
+# The Gap's duration is rational, so the rate is read rather than invented.
+expect_equal(sq_only$gap_fps, 30)
+sq_empty <- compost:::.video_sequence(gtrk(), NULL)
+expect_equal(sum(sq_empty$gaps), 0)
+
+# No frame size to render it at, and none is invented.
+expect_error(compost:::.assemble_track(gtrk(Gap(RationalTime(90, 30))),
+                                       NULL, NULL),
+             "no frame size")
+expect_error(compost:::.assemble_track(gtrk(Gap(RationalTime(90, 30))),
+                                       NULL, list(scale = 640)),
+             "no frame size")
+# A truly empty track is still nothing, not an error.
+expect_null(compost:::.assemble_track(gtrk(), NULL, NULL))
+expect_null(compost:::.assemble_track(gtrk(), NULL, list(pad = c(64, 64))))
+
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    # With a canvas it renders, and its duration survives.
+    only <- compost:::.assemble_track(gtrk(Gap(RationalTime(90, 30))), NULL,
+                                      list(pad = c(64, 64)))
+    expect_false(is.null(only))
+    expect_true(abs(as.numeric(probe(only$file, "duration")) - 3) < 0.15)
+    expect_equal(as.integer(probe(only$file, "width")), 64L)
+    unlink(only$temps)
+
+    # ... and through the full render, where dropping it would have taken
+    # three seconds off a timeline that asked for them. With no framing to
+    # supply a canvas this refuses loudly rather than rendering short.
+    gonly <- Timeline("gaponly")
+    append_child(tracks(gonly), gtrk(Gap(RationalTime(90, 30))))
+    expect_error(render_timeline(gonly, tempfile(fileext = ".mp4")),
+                 "no frame size")
+}
