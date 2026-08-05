@@ -891,3 +891,122 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
                    "further audio track")
     unlink(c(a2s, a1s, e_red, e_out, b_out))
 }
+
+# --- per-clip transforms ------------------------------------------------------
+# Read nowhere before this: pos/scale/rotation/opacity were carried in the
+# file and ignored by the renderer.
+tfc <- compost:::.clip_transform
+tfclip <- function(tf) {
+    k <- Clip("c", ExternalReference("x.mp4"))
+    if (!is.null(tf)) {
+        metadata(k) <- list(cornball = list(transform = tf))
+    }
+    k
+}
+# The identity is NULL, so the common clip costs no filter chain to say
+# it wants nothing done to it.
+expect_null(tfc(tfclip(NULL)))
+expect_null(tfc(tfclip(list(pos_x = 0, pos_y = 0, scale_x = 1, scale_y = 1,
+                            rotation = 0, opacity = 1))))
+# Partial specs fill from the identity rather than erroring.
+half <- tfc(tfclip(list(opacity = 0.5)))
+expect_equal(half$opacity, 0.5)
+expect_equal(half$scale_x, 1)
+expect_equal(half$pos_x, 0)
+# Junk falls back to the identity value for that field, not to a crash.
+junk <- tfc(tfclip(list(scale_x = "big", opacity = 0.25)))
+expect_equal(junk$scale_x, 1)
+expect_equal(junk$opacity, 0.25)
+# An editor keeping it with the rest of its clip state is also read.
+nested <- Clip("c", ExternalReference("x.mp4"))
+metadata(nested) <- list(cornball = list(nle = list(
+        transform = list(scale_x = 2, scale_y = 2))))
+expect_equal(tfc(nested)$scale_x, 2)
+
+# The chain: scale, then rotate, then opacity, each consuming the last.
+expect_equal(compost:::.transform_chain(NULL, 100, 80),
+             "scale=100:80:force_original_aspect_ratio=decrease")
+ch_s <- compost:::.transform_chain(list(pos_x = 0, pos_y = 0, scale_x = 0.5,
+                                        scale_y = 0.5, rotation = 0,
+                                        opacity = 1), 100, 80)
+expect_equal(ch_s, "scale=50:40:force_original_aspect_ratio=decrease")
+# Rotation and opacity force RGBA: without an alpha channel a rotated
+# layer's empty corners and a translucent one's blend both come out as
+# black painted over the base.
+ch_o <- compost:::.transform_chain(list(pos_x = 0, pos_y = 0, scale_x = 1,
+                                        scale_y = 1, rotation = 0,
+                                        opacity = 0.5), 100, 80)
+expect_true("format=rgba" %in% ch_o)
+expect_true(any(grepl("colorchannelmixer=aa=0.5", ch_o, fixed = TRUE)))
+ch_r <- compost:::.transform_chain(list(pos_x = 0, pos_y = 0, scale_x = 1,
+                                        scale_y = 1, rotation = 45,
+                                        opacity = 1), 100, 80)
+expect_true("format=rgba" %in% ch_r)
+expect_true(any(grepl("fillcolor=none", ch_r, fixed = TRUE)))
+expect_true(any(grepl("ow=rotw", ch_r, fixed = TRUE)))  # corners not cropped
+
+if (at_home() && nzchar(Sys.which("ffmpeg"))) {
+    tf_render <- function(tf) {
+        t <- Timeline("tf")
+        lo <- Track("V1", kind = "Video")
+        append_child(lo, st_clip(tf_red, 4))
+        up <- Track("V2", kind = "Video")
+        k <- Clip("c", ExternalReference(tf_grn),
+                  source_range = TimeRange(RationalTime(0, 30),
+                                           RationalTime(120, 30)))
+        if (!is.null(tf)) {
+            metadata(k) <- list(cornball = list(transform = tf))
+        }
+        append_child(up, k)
+        append_child(tracks(t), lo)
+        append_child(tracks(t), up)
+        o <- tempfile(fileext = ".mp4")
+        render_timeline(t, o)
+        o
+    }
+    tf_red <- st_solid(4, "red")
+    tf_grn <- st_solid(4, "green")
+    tf_rgb <- function(o) {
+        rf <- tempfile(fileext = ".raw")
+        on.exit(unlink(rf), add = TRUE)
+        system2("ffmpeg", shQuote(c("-nostdin", "-y", "-ss", "2", "-i", o,
+                    "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo",
+                    rf)), stdout = FALSE, stderr = FALSE)
+        v <- as.integer(readBin(rf, "raw", file.size(rf)))
+        c(mean(v[seq(1, length(v), 3)]), mean(v[seq(2, length(v), 3)]))
+    }
+    # No transform: the layer covers, so no red survives.
+    plain <- tf_rgb(tf_render(NULL))
+    expect_true(plain[1] < 20 && plain[2] > 90)
+    # Opacity blends both toward half rather than one winning.
+    blend <- tf_rgb(tf_render(list(opacity = 0.5)))
+    expect_true(blend[1] > 90 && blend[2] > 40 && blend[2] < 90)
+    # Half scale covers a quarter of the frame, so three quarters stay red.
+    quarter <- tf_rgb(tf_render(list(scale_x = 0.5, scale_y = 0.5)))
+    expect_true(abs(quarter[1] - 253 * 0.75) < 25)
+    expect_true(abs(quarter[2] - 127 * 0.25) < 15)
+    # Position moves it: pushed far enough the layer clips on the frame
+    # edge and less of it survives. A centred offset would not show up in
+    # a mean at all, which is why this one goes off the edge.
+    shoved <- tf_rgb(tf_render(list(scale_x = 0.5, scale_y = 0.5,
+                                    pos_x = 48)))
+    expect_true(shoved[2] < quarter[2])
+    # Rotation leaves the corners of the frame showing through.
+    spun <- tf_rgb(tf_render(list(rotation = 45)))
+    expect_true(spun[1] > 20 && spun[2] > 60)
+
+    # A transform on the BOTTOM track has no canvas to apply to, since
+    # that track is concatenated rather than composited. Say so instead of
+    # ignoring it.
+    wt <- Timeline("bottomtf")
+    wlo <- Track("V1", kind = "Video")
+    wk <- Clip("c", ExternalReference(tf_red),
+               source_range = TimeRange(RationalTime(0, 30),
+                                        RationalTime(120, 30)))
+    metadata(wk) <- list(cornball = list(transform = list(opacity = 0.5)))
+    append_child(wlo, wk)
+    append_child(tracks(wt), wlo)
+    expect_warning(render_timeline(wt, tempfile(fileext = ".mp4")),
+                   "bottom video track")
+    unlink(c(tf_red, tf_grn))
+}
