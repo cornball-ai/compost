@@ -784,11 +784,18 @@
 #' @keywords internal
 .clip_transform <- function(clip) {
     md <- tryCatch(rotio::metadata(clip)$cornball, error = function(e) NULL)
+    # `$` on an atomic vector is an error, not NULL, so a metadata blob
+    # that round-tripped into a bare string or number would crash the
+    # render rather than being ignored. Nothing here is authored by this
+    # package; check the shape before reaching into it.
+    if (!is.list(md)) {
+        return(NULL)
+    }
     tf <- md$transform
-    if (is.null(tf)) {
+    if (!is.list(tf) && is.list(md$nle)) {
         tf <- md$nle$transform
     }
-    if (is.null(tf)) {
+    if (!is.list(tf) || length(tf) == 0L) {
         return(NULL)
     }
     # Spelled out rather than `%||%`: that operator is base R only from
