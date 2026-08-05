@@ -690,11 +690,14 @@
         # which is not compositing; leaving it unpadded lets the base show
         # around a differently shaped layer. Same-shaped layers (the
         # full-frame cutaway case) scale exactly and cover.
-        tf <- if (is.null(layers$transform)) NULL else layers$transform[[i]]
+        if (is.null(layers$transform)) {
+            tf <- NULL
+        } else {
+            tf <- layers$transform[[i]]
+        }
         parts <- c(parts, sprintf(
                                   "[%d:v]%s,setpts=PTS-STARTPTS+%s/TB[ov%d]",
-                                  i, paste(.transform_chain(tf, bw, bh),
-                                           collapse = ","),
+                                  i, paste(.transform_chain(tf, bw, bh), collapse = ","),
                                   format(s, scientific = FALSE), i))
         if (i == nrow(layers)) {
             out <- "[vout]"
@@ -705,8 +708,16 @@
         # base through instead of freezing its last frame over it.
         # Position is an offset from centred, so a clip with no transform
         # sits where it always did.
-        px <- if (is.null(tf)) 0 else tf$pos_x
-        py <- if (is.null(tf)) 0 else tf$pos_y
+        if (is.null(tf)) {
+            px <- 0
+        } else {
+            px <- tf$pos_x
+        }
+        if (is.null(tf)) {
+            py <- 0
+        } else {
+            py <- tf$pos_y
+        }
         parts <- c(parts,
                    sprintf("%s[ov%d]overlay=(W-w)/2%+.0f:(H-h)/2%+.0f:enable='between(t,%s,%s)':eof_action=pass:repeatlast=0%s",
                            prev, i, px, py,
@@ -788,14 +799,22 @@
             return(default)
         }
         v <- suppressWarnings(as.numeric(x))
-        if (length(v) != 1L || !is.finite(v)) default else v
+        if (length(v) != 1L || !is.finite(v)) {
+            default
+        } else {
+            v
+        }
     }
     out <- list(pos_x = num(tf$pos_x, 0), pos_y = num(tf$pos_y, 0),
                 scale_x = num(tf$scale_x, 1), scale_y = num(tf$scale_y, 1),
                 rotation = num(tf$rotation, 0), opacity = num(tf$opacity, 1))
     identity <- out$pos_x == 0 && out$pos_y == 0 && out$scale_x == 1 &&
     out$scale_y == 1 && out$rotation == 0 && out$opacity == 1
-    if (identity) NULL else out
+    if (identity) {
+        NULL
+    } else {
+        out
+    }
 }
 
 #' Filter chain placing one layer on the canvas under its transform
@@ -810,8 +829,16 @@
 #' @return Character vector of filters, in order.
 #' @keywords internal
 .transform_chain <- function(tf, bw, bh) {
-    sx <- if (is.null(tf)) 1 else tf$scale_x
-    sy <- if (is.null(tf)) 1 else tf$scale_y
+    if (is.null(tf)) {
+        sx <- 1
+    } else {
+        sx <- tf$scale_x
+    }
+    if (is.null(tf)) {
+        sy <- 1
+    } else {
+        sy <- tf$scale_y
+    }
     fit <- sprintf("scale=%d:%d:force_original_aspect_ratio=decrease",
                    max(2L, as.integer(round(bw * sx))),
                    max(2L, as.integer(round(bh * sy))))
@@ -825,8 +852,8 @@
     if (tf$rotation != 0) {
         # ow/oh grow to hold the rotated frame so corners are not cropped.
         chain <- c(chain, sprintf(
-                "rotate=%.6f*PI/180:fillcolor=none:ow=rotw(%.6f*PI/180):oh=roth(%.6f*PI/180)",
-                tf$rotation, tf$rotation, tf$rotation))
+                                  "rotate=%.6f*PI/180:fillcolor=none:ow=rotw(%.6f*PI/180):oh=roth(%.6f*PI/180)",
+                                  tf$rotation, tf$rotation, tf$rotation))
     }
     if (tf$opacity != 1) {
         chain <- c(chain, sprintf("colorchannelmixer=aa=%.6f", tf$opacity))
