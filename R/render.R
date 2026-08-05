@@ -168,11 +168,29 @@
             # Widen the front by the fade so the dissolve consumes the head
             # handle (the conditioning replay) instead of played content.
             ws <- max(0, s - fade)
-            # Legacy timelines wrote nominal [0, dur] ranges over whole-file
-            # media; only a range that starts past 0 (a real head trim) or a
-            # fade needing its handle constitutes an actual window.
             if (ws > 0 || fade > 0) {
                 win <- c(ws, e)
+            } else if (!.is_image(u)) {
+                # A range starting at 0 is not thereby the whole file.
+                # Legacy timelines wrote nominal [0, dur] over whole-file
+                # media and treating that as "no trim" was how they were
+                # tolerated -- but a real edit writes [0, dur] whenever it
+                # wants the first dur seconds and no more, which is every
+                # take trimmed from its own first frame. Guessing from the
+                # start time alone played the whole source instead, and the
+                # output was longer than the timeline with nothing in the
+                # clip table to explain it.
+                #
+                # So ask the media rather than the range: when the range
+                # already covers the file, trimming is a no-op and the
+                # cheap whole-file concat still wins. Stills are excluded
+                # because .prerender_sources() builds them at exactly the
+                # range's duration, and a window here would trim twice.
+                md <- tryCatch(as.numeric(probe(u, "duration")),
+                               error = function(cnd) NA_real_)
+                if (isTRUE(is.finite(md)) && e < md - 1e-3) {
+                    win <- c(0, e)
+                }
             }
         }
         files <- c(files, u)
@@ -508,6 +526,14 @@
 #'   Note: concatenation of multiple video clips, still/sequence
 #'   pre-renders, and layout composition still run, since they produce
 #'   intermediates the final command depends on.
+#' @param scale Output scale factor in \code{(0, 1]}; 1 (the default) renders
+#'   at full size. Lowering it makes a proxy: the picture is composed exactly
+#'   as it would be at full size and downscaled by the last filter in the
+#'   final pass, so a preview shows what the real render will look like.
+#'   Note what this does NOT do -- still pre-renders, layout composition and
+#'   concatenation all still happen at full size, so the saving is in the
+#'   final encode and the file, not in the whole pipeline. Dimensions are
+#'   rounded down to even numbers, which \code{yuv420p} requires.
 #'
 #' @return Invisibly returns the output path. If dry_run, returns the command
 #'   string for the final render pass.
@@ -520,7 +546,12 @@
 #'
 #' @export
 render_timeline <- function(timeline, output, media_dir = NULL,
-                            overwrite = TRUE, dry_run = FALSE) {
+                            overwrite = TRUE, dry_run = FALSE, scale = 1) {
+    if (!is.numeric(scale) || length(scale) != 1L || !is.finite(scale) ||
+        scale <= 0 || scale > 1) {
+        stop("render_timeline(): scale must be a single number in (0, 1]",
+             call. = FALSE)
+    }
     if (is.character(timeline)) {
         tl_path <- normalizePath(timeline, mustWork = TRUE)
         if (is.null(media_dir)) {
@@ -647,6 +678,17 @@ render_timeline <- function(timeline, output, media_dir = NULL,
         vfps <- .video_fps(base_video)
         n_frames <- as.integer(round(adur * vfps))
         vf <- c(vf, "tpad=stop_mode=clone:stop=-1")
+    }
+
+    # The proxy downscale goes LAST, after framing, the caption burn and the
+    # audio-length pad. Everything above decided what the full-size picture
+    # is; this only changes how many pixels it is written at, so a preview
+    # is the real render seen smaller rather than a differently composed
+    # one. Captions in particular are burned at design size and then
+    # shrunk, which is what they will look like scaled down on a phone.
+    if (scale < 1) {
+        vf <- c(vf, sprintf("scale=trunc(iw*%1$.6f/2)*2:trunc(ih*%1$.6f/2)*2",
+                            scale))
     }
 
     args <- c(
