@@ -78,8 +78,7 @@
         stop("execute_plan(): plan schema ", schema,
              " is newer than this compost supports (1)", call. = FALSE)
     }
-    canvas <- .plan_num(plan$canvas, "canvas", integer = FALSE,
-                        positive = TRUE)
+    canvas <- .plan_num(plan$canvas, "canvas", integer = FALSE, positive = TRUE)
     if (length(canvas) != 2L || any(canvas != round(canvas)) ||
         any(canvas %% 2 != 0)) {
         stop("execute_plan(): canvas must be two positive even integers",
@@ -124,9 +123,9 @@
             stop("execute_plan(): an image row cannot have a nonzero ",
                  "source_in (an image has no time axis)", call. = FALSE)
         }
-        video <- video[order(video$layer, video$start), , drop = FALSE]
+        video <- video[order(video$layer, video$start),, drop = FALSE]
         for (l in unique(video$layer)) {
-            rows <- video[video$layer == l, , drop = FALSE]
+            rows <- video[video$layer == l,, drop = FALSE]
             if (nrow(rows) > 1L) {
                 ends <- rows$start + rows$duration
                 if (any(rows$start[-1L] < ends[-nrow(rows)])) {
@@ -137,8 +136,7 @@
             }
         }
         video$path <- vapply(seq_len(nrow(video)), function(i) {
-            .plan_media(video$media[i], media_dir,
-                        sprintf("video row %d", i))
+            .plan_media(video$media[i], media_dir, sprintf("video row %d", i))
         }, character(1))
     }
 
@@ -146,15 +144,14 @@
                             c("layer", "at", "duration", "type"))
     if (nrow(transitions) > 0L) {
         .plan_num(transitions$at, "transitions$at", nonneg = TRUE)
-        .plan_num(transitions$duration, "transitions$duration",
-                  positive = TRUE)
+        .plan_num(transitions$duration, "transitions$duration", positive = TRUE)
         if (!all(transitions$type == "dissolve")) {
             stop("execute_plan(): transition type must be \"dissolve\" in ",
                  "plan schema 1", call. = FALSE)
         }
         for (i in seq_len(nrow(transitions))) {
-            t1 <- transitions[i, ]
-            rows <- video[video$layer == t1$layer, , drop = FALSE]
+            t1 <- transitions[i,]
+            rows <- video[video$layer == t1$layer,, drop = FALSE]
             j <- which(rows$start == t1$at)
             if (length(j) != 1L || j == 1L ||
                 rows$start[j - 1L] + rows$duration[j - 1L] != t1$at) {
@@ -181,10 +178,9 @@
         .plan_num(audio$start, "audio$start", nonneg = TRUE)
         .plan_num(audio$duration, "audio$duration", positive = TRUE)
         .plan_num(audio$source_in, "audio$source_in", nonneg = TRUE)
-        audio <- audio[order(audio$start, audio$asset_id), , drop = FALSE]
+        audio <- audio[order(audio$start, audio$asset_id),, drop = FALSE]
         audio$path <- vapply(seq_len(nrow(audio)), function(i) {
-            .plan_media(audio$media[i], media_dir,
-                        sprintf("audio row %d", i))
+            .plan_media(audio$media[i], media_dir, sprintf("audio row %d", i))
         }, character(1))
     }
 
@@ -250,7 +246,7 @@ execute_plan <- function(plan, output, media_dir = NULL, overwrite = TRUE,
     secs <- function(t) sprintf("%.6f", t / pl$tick_rate)
     total <- pl$duration / pl$tick_rate
     frames <- as.integer(round(pl$duration * pl$fpsn /
-                    (pl$tick_rate * pl$fpsd)))
+                               (pl$tick_rate * pl$fpsd)))
 
     ins <- character(0)
     chains <- character(0)
@@ -285,10 +281,10 @@ execute_plan <- function(plan, output, media_dir = NULL, overwrite = TRUE,
 
     v <- pl$video
     for (l in unique(v$layer)) {
-        rows <- v[v$layer == l, , drop = FALSE]
+        rows <- v[v$layer == l,, drop = FALSE]
         labs <- character(nrow(rows))
         for (i in seq_len(nrow(rows))) {
-            r <- rows[i, ]
+            r <- rows[i,]
             pre <- if (r$kind == "image") {
                 c("-loop", "1", "-t", secs(r$duration))
             } else {
@@ -306,14 +302,13 @@ execute_plan <- function(plan, output, media_dir = NULL, overwrite = TRUE,
                                         "[%d:v]scale=%d:%d,setsar=1,fps=%s%s,setpts=PTS-STARTPTS+%s/TB%s",
                                         idx, r$dest_w, r$dest_h, pl$fps, op,
                                         secs(r$start), lab))
-            paint(lab, r$dest_x, r$dest_y, r$start,
-                  r$start + r$duration)
+            paint(lab, r$dest_x, r$dest_y, r$start, r$start + r$duration)
         }
-        tx <- pl$transitions[pl$transitions$layer == l, , drop = FALSE]
+        tx <- pl$transitions[pl$transitions$layer == l,, drop = FALSE]
         for (i in seq_len(nrow(tx))) {
-            t1 <- tx[i, ]
+            t1 <- tx[i,]
             j <- which(rows$start == t1$at)
-            b <- rows[j, ]
+            b <- rows[j,]
             idx <- add_input(c("-ss", secs(b$source_in - t1$duration),
                                "-t", secs(t1$duration)), b$path)
             lab <- sprintf("[d%d]", idx)
@@ -340,7 +335,7 @@ execute_plan <- function(plan, output, media_dir = NULL, overwrite = TRUE,
     if (nrow(a) > 0L) {
         alabs <- character(nrow(a))
         for (i in seq_len(nrow(a))) {
-            r <- a[i, ]
+            r <- a[i,]
             idx <- add_input(c("-ss", secs(r$source_in), "-t",
                                secs(r$duration)), r$path)
             lab <- sprintf("[a%d]", idx)
