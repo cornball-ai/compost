@@ -119,6 +119,17 @@ aud1 <- data.frame(asset_id = "n", media = afile, start = 15L,
 cmd_a <- run(mkplan(audio = aud1), dry_run = TRUE)
 expect_true(grepl("adelay=22050S:all=1", cmd_a, fixed = TRUE))
 
+# the plan duration must map to a whole positive frame count: 5 ticks
+# at 90/s is 1.67 frames at 30fps, and 1 tick rounds below one frame
+expect_error(run(mkplan(duration = 5L, tick_rate = 90L,
+                        video = vrow(duration = 5L))), "frame")
+expect_error(run(mkplan(duration = 1L, tick_rate = 90L,
+                        video = vrow(duration = 1L))), "frame")
+# ...while 3 ticks at 90/s is exactly 1 frame
+cmd_f <- run(mkplan(duration = 3L, tick_rate = 90L,
+                    video = vrow(duration = 3L)), dry_run = TRUE)
+expect_true(grepl("-frames:v 1", cmd_f, fixed = TRUE))
+
 # --- dry-run lowering -------------------------------------------------
 
 cmd <- run(mkplan(video = two, transitions = tx()), dry_run = TRUE)

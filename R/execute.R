@@ -261,8 +261,16 @@ execute_plan <- function(plan, output, media_dir = NULL, overwrite = TRUE,
     pl <- .plan_check(plan, media_dir)
     secs <- function(t) sprintf("%.6f", t / pl$tick_rate)
     total <- pl$duration / pl$tick_rate
-    frames <- as.integer(round(pl$duration * pl$fpsn /
-                               (pl$tick_rate * pl$fpsd)))
+    # The exact-duration claim requires the tick/fps relationship to be
+    # exact: the plan duration must map to a whole, positive frame count,
+    # never a rounded one.
+    fr <- pl$duration * pl$fpsn / (pl$tick_rate * pl$fpsd)
+    if (abs(fr - round(fr)) > 1e-9 || round(fr) < 1) {
+        stop("execute_plan(): plan duration (", pl$duration, " ticks at ",
+             pl$tick_rate, "/s) is not a whole positive frame count at ",
+             "fps ", pl$fps, call. = FALSE)
+    }
+    frames <- as.integer(round(fr))
 
     ins <- character(0)
     chains <- character(0)
