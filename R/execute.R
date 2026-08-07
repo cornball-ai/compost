@@ -52,17 +52,21 @@
         stop("execute_plan(): plan media is media_dir-relative but no ",
              "media_dir was given", call. = FALSE)
     }
+    # Existence first: normalizePath only resolves symlinks in paths
+    # that exist (macOS /tmp is a symlink), so the escape comparison is
+    # portable only on a file we know is there.
+    cand <- file.path(media_dir, mp)
+    if (!file.exists(cand)) {
+        stop("execute_plan(): ", what, " media '", mp,
+             "' does not exist under media_dir", call. = FALSE)
+    }
     # A relative path may still climb out (../outside.mp4); the binding
     # contract is "beneath media_dir", so normalize and require it.
     base <- normalizePath(media_dir, mustWork = FALSE)
-    p <- normalizePath(file.path(media_dir, mp), mustWork = FALSE)
+    p <- normalizePath(cand, mustWork = FALSE)
     if (!startsWith(p, paste0(base, "/"))) {
         stop("execute_plan(): ", what, " media '", mp,
              "' escapes media_dir", call. = FALSE)
-    }
-    if (!file.exists(p)) {
-        stop("execute_plan(): ", what, " media '", mp,
-             "' does not exist under media_dir", call. = FALSE)
     }
     p
 }
