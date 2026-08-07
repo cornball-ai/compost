@@ -52,7 +52,14 @@
         stop("execute_plan(): plan media is media_dir-relative but no ",
              "media_dir was given", call. = FALSE)
     }
-    p <- file.path(media_dir, mp)
+    # A relative path may still climb out (../outside.mp4); the binding
+    # contract is "beneath media_dir", so normalize and require it.
+    base <- normalizePath(media_dir, mustWork = FALSE)
+    p <- normalizePath(file.path(media_dir, mp), mustWork = FALSE)
+    if (!startsWith(p, paste0(base, "/"))) {
+        stop("execute_plan(): ", what, " media '", mp,
+             "' escapes media_dir", call. = FALSE)
+    }
     if (!file.exists(p)) {
         stop("execute_plan(): ", what, " media '", mp,
              "' does not exist under media_dir", call. = FALSE)
@@ -96,6 +103,13 @@
     }
     tick_rate <- .plan_num(plan$tick_rate, "tick_rate", positive = TRUE)
     duration <- .plan_num(plan$duration, "duration", positive = TRUE)
+    overrun <- function(df, what) {
+        if (nrow(df) > 0L && any(df$start + df$duration > duration)) {
+            stop("execute_plan(): a ", what, " row extends past the plan ",
+                 "duration; the executor never silently truncates",
+                 call. = FALSE)
+        }
+    }
 
     video <- .plan_df(plan, "video", c("layer", "asset_id", "media", "kind",
                                        "start", "duration", "source_in",
@@ -135,6 +149,7 @@
                 }
             }
         }
+        overrun(video, "video")
         video$path <- vapply(seq_len(nrow(video)), function(i) {
             .plan_media(video$media[i], media_dir, sprintf("video row %d", i))
         }, character(1))
@@ -179,6 +194,7 @@
         .plan_num(audio$duration, "audio$duration", positive = TRUE)
         .plan_num(audio$source_in, "audio$source_in", nonneg = TRUE)
         audio <- audio[order(audio$start, audio$asset_id),, drop = FALSE]
+        overrun(audio, "audio")
         audio$path <- vapply(seq_len(nrow(audio)), function(i) {
             .plan_media(audio$media[i], media_dir, sprintf("audio row %d", i))
         }, character(1))
@@ -340,10 +356,14 @@ execute_plan <- function(plan, output, media_dir = NULL, overwrite = TRUE,
                                secs(r$duration)), r$path)
             lab <- sprintf("[a%d]", idx)
             alabs[i] <- lab
-            ms <- as.integer(round(1000 * r$start / pl$tick_rate))
+            # Sample-accurate placement: adelay's default unit is the
+            # millisecond, which rounds a 33.333ms tick; the S suffix
+            # delays in samples, quantizing tick positions to the 44.1kHz
+            # mix grid (error at most half a sample).
+            smp <- as.integer(round(r$start * 44100 / pl$tick_rate))
             chains <- c(chains, sprintf(
-                                        "[%d:a]aformat=sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS,adelay=%d:all=1%s",
-                                        idx, ms, lab))
+                                        "[%d:a]aformat=sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS,adelay=%dS:all=1%s",
+                                        idx, smp, lab))
         }
         # normalize=0: rows are summed at unity, never averaged. Trim the
         # finite mix first, then pad to the exact plan length with

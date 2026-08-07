@@ -95,6 +95,30 @@ expect_error(run(mkplan(captions = data.frame(asset_id = "c", media = vfile,
                                               stringsAsFactors = FALSE))),
              "ass or")
 
+# a relative path may not climb out of media_dir
+outside <- file.path(dirname(mdir), "escapee.mp4")
+file.create(outside)
+expect_error(run(mkplan(video = vrow(media = "../escapee.mp4"))),
+             "escapes")
+unlink(outside)
+
+# rows past the plan duration refuse; the executor never silently
+# truncates plan content at the background end
+expect_error(run(mkplan(video = vrow(start = 60L, duration = 45L))),
+             "past the plan duration")
+expect_error(run(mkplan(audio = data.frame(asset_id = "n", media = afile,
+                                           start = 0L, duration = 90L,
+                                           source_in = 0L,
+                                           stringsAsFactors = FALSE))),
+             "past the plan duration")
+
+# audio placement is sample-accurate: 15 ticks at 30/s on the 44.1kHz
+# grid is exactly 22050 samples, not a rounded millisecond count
+aud1 <- data.frame(asset_id = "n", media = afile, start = 15L,
+                   duration = 30L, source_in = 0L, stringsAsFactors = FALSE)
+cmd_a <- run(mkplan(audio = aud1), dry_run = TRUE)
+expect_true(grepl("adelay=22050S:all=1", cmd_a, fixed = TRUE))
+
 # --- dry-run lowering -------------------------------------------------
 
 cmd <- run(mkplan(video = two, transitions = tx()), dry_run = TRUE)
