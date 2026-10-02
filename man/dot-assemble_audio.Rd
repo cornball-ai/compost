@@ -11,8 +11,11 @@
 \item{media_dir}{Base directory for relative urls, or NULL.}
 }
 \value{
-list(file, temps, bed) -- \code{bed} marks the untouched
-  single-clip case -- or NULL when the track has no clips.
+list(file, temps, bed, dur) -- \code{bed} marks the single-clip
+  case, and \code{dur} is the seconds a trimmed bed's clip declares
+  (NULL otherwise: an untouched bed is as long as its file, and an
+  assembled track does not govern the render's length) -- or NULL when
+  the track has no clips.
 }
 \description{
 A Track is a sequence whether it carries pictures or sound, so the same

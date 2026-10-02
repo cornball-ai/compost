@@ -934,9 +934,9 @@
 #' @return \code{output}, invisibly.
 #' @keywords internal
 .audio_window <- function(input, output, start, duration) {
-    .run_ffmpeg(c("-y", "-ss", format(start, scientific = FALSE), "-i", input,
-                  "-af", "apad", "-t", format(duration, scientific = FALSE),
-                  output))
+    .run_ffmpeg(c("-y", "-ss", format(start, scientific = FALSE), "-i",
+                  input, "-af", "apad", "-t",
+                  format(duration, scientific = FALSE), output))
     invisible(output)
 }
 
@@ -1001,8 +1001,7 @@
             inputs <- c(inputs, files[i])
         } else {
             cut <- tempfile(fileext = paste0(".", tools::file_ext(files[i])))
-            .audio_window(files[i], cut, start = w[1],
-                          duration = w[2] - w[1])
+            .audio_window(files[i], cut, start = w[1], duration = w[2] - w[1])
             temps <- c(temps, cut)
             inputs <- c(inputs, cut)
         }
