@@ -917,6 +917,29 @@
     invisible(output)
 }
 
+#' Cut a window of audio at exactly its length
+#'
+#' A window can ask for more than its file holds. An mp3's container
+#' duration counts encoder padding the decoder drops, so a range written
+#' from a probe of the file runs past its last sample, and a plain cut
+#' comes out short by that much. On a bed that made the render shorter
+#' than the clip the timeline declared; on an assembled track it would
+#' pull every later clip earlier. Silence fills what the file does not
+#' hold, so a cut is as long as its window.
+#'
+#' @param input Path to the source media.
+#' @param output Path for the cut; the extension selects the format.
+#' @param start Seconds into the source.
+#' @param duration Seconds to keep.
+#' @return \code{output}, invisibly.
+#' @keywords internal
+.audio_window <- function(input, output, start, duration) {
+    .run_ffmpeg(c("-y", "-ss", format(start, scientific = FALSE), "-i", input,
+                  "-af", "apad", "-t", format(duration, scientific = FALSE),
+                  output))
+    invisible(output)
+}
+
 #' Assemble one audio track into a single file
 #'
 #' A Track is a sequence whether it carries pictures or sound, so the same
@@ -931,8 +954,11 @@
 #'
 #' @param track A rotio audio Track.
 #' @param media_dir Base directory for relative urls, or NULL.
-#' @return list(file, temps, bed) -- \code{bed} marks the untouched
-#'   single-clip case -- or NULL when the track has no clips.
+#' @return list(file, temps, bed, dur) -- \code{bed} marks the single-clip
+#'   case, and \code{dur} is the seconds a trimmed bed's clip declares
+#'   (NULL otherwise: an untouched bed is as long as its file, and an
+#'   assembled track does not govern the render's length) -- or NULL when
+#'   the track has no clips.
 #' @keywords internal
 .assemble_audio <- function(track, media_dir) {
     seq_a <- .video_sequence(track, media_dir)
@@ -949,7 +975,8 @@
     # untrimmed case can also skip the re-encode.
     bed <- length(files) == 1L && !any(gaps > 0)
     if (bed && is.null(wins[[1]])) {
-        return(list(file = files[1], temps = character(0), bed = TRUE))
+        return(list(file = files[1], temps = character(0), bed = TRUE,
+                    dur = NULL))
     }
     sr <- as.integer(.probe_field(files[1], "sample_rate", "a:0"))
     ch <- as.integer(.probe_field(files[1], "channels", "a:0"))
@@ -974,7 +1001,8 @@
             inputs <- c(inputs, files[i])
         } else {
             cut <- tempfile(fileext = paste0(".", tools::file_ext(files[i])))
-            subclip(files[i], cut, start = w[1], duration = w[2] - w[1])
+            .audio_window(files[i], cut, start = w[1],
+                          duration = w[2] - w[1])
             temps <- c(temps, cut)
             inputs <- c(inputs, cut)
         }
@@ -985,7 +1013,11 @@
     out <- tempfile(fileext = ".m4a")
     temps <- c(temps, out)
     audio_concat(inputs, out, sample_rate = sr, channels = ch, overwrite = TRUE)
-    list(file = out, temps = temps, bed = bed)
+    # A trimmed bed is as long as its clip says. The assembled file is a
+    # re-encode, and its probed length is that only to within what the
+    # container rounds to.
+    list(file = out, temps = temps, bed = bed,
+         dur = if (bed) wins[[1]][2] - wins[[1]][1] else NULL)
 }
 
 #' Assemble one video track into a single renderable file
@@ -1341,6 +1373,7 @@ render_timeline <- function(timeline, output, media_dir = NULL,
     # but the rest were being dropped in silence, which is not.
     audio_file <- NULL
     audio_is_bed <- FALSE
+    audio_dur <- NULL
     if (length(atracks) > 0) {
         auds <- list()
         for (k in seq_along(atracks)) {
@@ -1355,6 +1388,7 @@ render_timeline <- function(timeline, output, media_dir = NULL,
         if (length(auds) == 1L) {
             audio_file <- auds[[1]]$file
             audio_is_bed <- auds[[1]]$bed
+            audio_dur <- auds[[1]]$dur
         } else if (length(auds) > 1L) {
             # A mix is never a bed: several tracks summed is not one
             # authored file for the timeline to bend its length to.
@@ -1380,7 +1414,14 @@ render_timeline <- function(timeline, output, media_dir = NULL,
     n_frames <- NULL
 
     if (!is.null(audio_file) && audio_is_bed) {
-        adur <- as.numeric(probe(audio_file, "duration"))
+        # An untouched bed is as long as its file. A trimmed one is as
+        # long as its clip declares: the walk knows that exactly, where a
+        # probe of the cut would measure the re-encode.
+        adur <- if (is.null(audio_dur)) {
+            as.numeric(probe(audio_file, "duration"))
+        } else {
+            audio_dur
+        }
         vfps <- .video_fps(base_video)
         n_frames <- as.integer(round(adur * vfps))
         vf <- c(vf, "tpad=stop_mode=clone:stop=-1")

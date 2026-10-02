@@ -891,7 +891,52 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
     m_out <- tempfile(fileext = ".mp4")
     expect_silent(render_timeline(m_tl, m_out))
     expect_true(abs(as.numeric(probe(m_out, "duration")) - 6) < 0.25)
-    unlink(c(a2s, a1s, e_red, e_out, b_out, m_out))
+
+    # A range can ask for more than its file holds. An mp3's container
+    # counts encoder padding the decoder drops: this one says 5.04s and
+    # decodes to 5s. A clip written from a probe of it declares 151 frames,
+    # the plain cut came out 5s long, and the render was 150 frames against
+    # a timeline of 151 (cornductor's slides bundles are this shape).
+    p_mp3 <- tempfile(fileext = ".mp3")
+    system2("ffmpeg", shQuote(c("-nostdin", "-y", "-f", "lavfi", "-i",
+                                "sine=frequency=440:duration=5", "-ar",
+                                "48000", "-ac", "1", p_mp3)),
+            stdout = FALSE, stderr = FALSE)
+    p_says <- as.numeric(probe(p_mp3, "duration"))
+    p_frames <- as.integer(round(p_says * 30))
+    expect_true(p_says > 5 + 1 / 30) # the padding is real, and over a frame
+    p_clip <- function() {
+        Clip("audio", ExternalReference(p_mp3),
+             source_range = TimeRange(RationalTime(0, 30),
+                                      RationalTime(p_frames, 30)))
+    }
+    # The cut is as long as its window: silence fills what is not there.
+    p_bed <- compost:::.assemble_audio(au_track(p_clip()), NULL)
+    expect_true(p_bed$bed)
+    expect_equal(p_bed$dur, p_frames / 30)
+    expect_true(abs(as.numeric(probe(p_bed$file, "duration")) -
+                    p_frames / 30) < 0.02)
+    # On an assembled track that keeps the clip after it where the
+    # timeline puts it.
+    p_seq <- compost:::.assemble_audio(au_track(p_clip(), au_clip(a1s, 1)),
+                                       NULL)
+    expect_null(p_seq$dur)
+    expect_true(abs(as.numeric(probe(p_seq$file, "duration")) -
+                    (p_frames / 30 + 1)) < 0.02)
+    # An untouched bed has no declared length to go by: its file governs.
+    expect_null(one$dur)
+    # End to end: the render is as long as the clip the timeline declares.
+    p_tl <- Timeline("paddedbed")
+    p_v <- Track("V1", kind = "Video")
+    append_child(p_v, st_clip(e_red, 5))
+    append_child(tracks(p_tl), p_v)
+    append_child(tracks(p_tl), au_track(p_clip()))
+    p_out <- tempfile(fileext = ".mp4")
+    render_timeline(p_tl, p_out)
+    expect_equal(as.integer(probe(p_out, "nb_frames")), p_frames)
+    unlink(c(p_bed$temps, p_seq$temps))
+
+    unlink(c(a2s, a1s, e_red, e_out, b_out, m_out, p_mp3, p_out))
 }
 
 # --- per-clip transforms ------------------------------------------------------
