@@ -262,6 +262,9 @@
 #' @export
 execute_plan <- function(plan, output, media_dir = NULL, overwrite = TRUE,
                          dry_run = FALSE) {
+    if (!dry_run && file.exists(output) && !overwrite) {
+        stop("execute_plan(): output already exists: ", output, call. = FALSE)
+    }
     pl <- .plan_check(plan, media_dir)
     secs <- function(t) sprintf("%.6f", t / pl$tick_rate)
     total <- pl$duration / pl$tick_rate
@@ -292,7 +295,7 @@ execute_plan <- function(plan, output, media_dir = NULL, overwrite = TRUE,
     # The base must be finite: an endless color source keeps the shared
     # filtergraph spinning after -frames:v closes the video stream, and
     # with an audio output alive ffmpeg then never exits. d= bounds it
-    # in seconds; -frames:v still cuts frame-exactly.
+    # in seconds; the final trim filter cuts picture frame-exactly.
     prev <- "[bg]"
     chains <- sprintf("color=c=black:s=%dx%d:r=%s:d=%s,settb=AVTB[bg]",
                       pl$canvas[1], pl$canvas[2], pl$fps,
@@ -301,9 +304,15 @@ execute_plan <- function(plan, output, media_dir = NULL, overwrite = TRUE,
     paint <- function(lbl, x, y, s, e) {
         ov <<- ov + 1L
         out <- sprintf("[ov%d]", ov)
+        # Compare output frame positions from timestamps: decimal seconds at
+        # NTSC boundaries can compare just below the cut. Timestamps also
+        # retain the common timeline across successive overlay filters.
+        first <- ceiling(as.double(s) * pl$fpsn / (pl$tick_rate * pl$fpsd) - 1e-9)
+        last <- ceiling(as.double(e) * pl$fpsn / (pl$tick_rate * pl$fpsd) - 1e-9)
+        frame <- sprintf("round(t*%d/%d)", pl$fpsn, pl$fpsd)
         chains <<- c(chains, sprintf(
-                                     "%s%soverlay=%d:%d:enable='between(t,%s,%s)':eof_action=pass:repeatlast=0%s",
-                                     prev, lbl, x, y, secs(s), secs(e), out))
+                                     "%s%soverlay=%d:%d:enable='gte(%s,%d)*lt(%s,%d)':eof_action=pass:repeatlast=0%s",
+                                     prev, lbl, x, y, frame, first, frame, last, out))
         prev <<- out
     }
 
@@ -389,10 +398,13 @@ execute_plan <- function(plan, output, media_dir = NULL, overwrite = TRUE,
         amaps <- c("-map", "[aout]", "-c:a", "aac", "-b:a", "192k")
     }
 
-    args <- c(if (overwrite) "-y", ins,
+    # End picture in the filtergraph. -frames:v stops the whole transcode as
+    # soon as the video encoder reaches its count, potentially before the
+    # audio encoder has drained the last samples (especially short NTSC cuts).
+    chains <- c(chains, sprintf("%strim=end_frame=%d[vout]", prev, frames))
+    args <- c("-nostdin", if (overwrite) "-y" else "-n", ins,
               "-filter_complex", paste(chains, collapse = ";"),
-              "-map", prev, amaps,
-              "-frames:v", frames,
+              "-map", "[vout]", amaps,
               "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
               "-movflags", "+faststart",
               output)

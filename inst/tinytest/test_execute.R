@@ -128,13 +128,13 @@ expect_error(run(mkplan(duration = 1L, tick_rate = 90L,
 # ...while 3 ticks at 90/s is exactly 1 frame
 cmd_f <- run(mkplan(duration = 3L, tick_rate = 90L,
                     video = vrow(duration = 3L)), dry_run = TRUE)
-expect_true(grepl("-frames:v 1", cmd_f, fixed = TRUE))
+expect_true(grepl("trim=end_frame=1", cmd_f, fixed = TRUE))
 
 # --- dry-run lowering -------------------------------------------------
 
 cmd <- run(mkplan(video = two, transitions = tx()), dry_run = TRUE)
 expect_true(grepl("-filter_complex", cmd, fixed = TRUE))
-expect_true(grepl("-frames:v 75", cmd, fixed = TRUE))
+expect_true(grepl("trim=end_frame=75", cmd, fixed = TRUE))
 expect_true(grepl("fade=t=in", cmd, fixed = TRUE)) # the dissolve handle
 expect_true(grepl("color=c=black:s=640x360:r=30/1", cmd, fixed = TRUE))
 # head-fed: the handle input seeks source_in - duration = 0.2s into b
@@ -208,6 +208,23 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
                 "stream=codec_type", "-of", "csv=p=0", out)),
         stdout = TRUE)
     expect_equal(astreams, "audio")
+
+    # Ending video with an encoder frame limit used to truncate audio on a
+    # 12-frame NTSC edit: 17408 decoded samples instead of at least 17657.
+    short <- mkplan(video = vrow(media = red, duration = 12012L),
+        audio = data.frame(asset_id = "tone", media = sine, start = 0L,
+            duration = 12012L, source_in = 0L), duration = 12012L)
+    short$fps <- "30000/1001"
+    short$tick_rate <- 30000L
+    short_out <- file.path(mdir, "short.mp4")
+    execute_plan(short, short_out, media_dir = mdir)
+    expect_equal(as.integer(probe(short_out, "nb_frames")), 12L)
+    raw <- file.path(mdir, "short.f32")
+    compost:::.run_ffmpeg(c("-nostdin", "-y", "-i", short_out, "-map", "0:a:0",
+        "-ac", "1", "-f", "f32le", raw))
+    expect_true(file.info(raw)$size / 4 >= floor(12012 / 30000 * 44100))
+    expect_error(execute_plan(short, short_out, media_dir = mdir, overwrite = FALSE),
+                 "output already exists")
 
     # captions burn: a minimal ASS file renders without error
     ass <- file.path(mdir, "media", "c.ass")
