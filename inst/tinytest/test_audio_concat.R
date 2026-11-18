@@ -57,6 +57,9 @@ m <- tempfile(fileext = ".mp3")
 w2 <- tempfile(fileext = ".wav")
 file.create(m)
 file.create(w2)
+# audio_concat() normalizes its inputs; on macOS /var resolves to /private/var.
+m <- normalizePath(m)
+w2 <- normalizePath(w2)
 cmd2 <- audio_concat(c(m, w2), tempfile(fileext = ".mp3"),
                      sample_rate = 48000, channels = 1, dry_run = TRUE)
 expect_true(grepl(paste0("-f mp3 -i ", m), cmd2, fixed = TRUE))
