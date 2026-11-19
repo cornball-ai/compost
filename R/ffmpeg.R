@@ -98,3 +98,20 @@
 .is_image <- function(path) {
     grepl("\\.(png|jpe?g|webp|bmp|tiff?)$", path, ignore.case = TRUE)
 }
+
+#' Force the right demuxer for an audio input
+#'
+#' ffmpeg's container auto-detection can misclassify a short re-encoded mp3.
+#' Its raw bitstream sometimes scores higher as an H.266/VVC elementary stream
+#' than as mp3, so the decode fails with "Invalid NAL unit" and status 234
+#' instead of reading the audio. Naming the demuxer with \code{-f} before
+#' \code{-i} skips the guess. Return the args to place immediately before the
+#' \code{-i} for a given input; empty for formats that are not misdetected.
+#'
+#' @param path Path to an audio input file.
+#' @return A character vector of ffmpeg args (possibly empty) to precede
+#'   the \code{-i} for this input.
+#' @keywords internal
+.audio_demuxer <- function(path) {
+    if (grepl("\\.mp3$", path, ignore.case = TRUE)) c("-f", "mp3") else character()
+}

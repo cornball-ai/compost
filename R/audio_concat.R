@@ -54,7 +54,8 @@ audio_concat <- function(inputs, output, gap = 0, tail = 0,
 
     filter <- .audio_concat_filter(n, gap, tail, sample_rate, channels)
 
-    args <- c(if (overwrite) "-y", as.vector(rbind("-i", inputs)),
+    ins <- unlist(lapply(inputs, function(f) c(.audio_demuxer(f), "-i", f)))
+    args <- c(if (overwrite) "-y", ins,
               "-filter_complex", filter, "-map", "[aout]",
         if (!is.null(bitrate)) c("-b:a", bitrate), output)
 

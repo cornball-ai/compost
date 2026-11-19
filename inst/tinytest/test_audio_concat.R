@@ -41,7 +41,31 @@ expect_true(grepl("^ffmpeg -y", cmd))
 expect_true(grepl("-filter_complex", cmd))
 expect_true(grepl("-map \\[aout\\]", cmd))
 expect_true(grepl("-b:a 192k", cmd))
+# A wav input carries no forced demuxer.
+expect_false(grepl("-f mp3", cmd, fixed = TRUE))
 unlink(w)
+
+# --- .audio_demuxer + forced demuxer on mp3 inputs -------------------------
+
+expect_identical(compost:::.audio_demuxer("x.mp3"), c("-f", "mp3"))
+expect_identical(compost:::.audio_demuxer("X.MP3"), c("-f", "mp3"))
+expect_identical(compost:::.audio_demuxer("x.wav"), character())
+expect_identical(compost:::.audio_demuxer("x.flac"), character())
+
+# mp3 inputs get -f mp3 immediately before their -i; wav does not.
+m <- tempfile(fileext = ".mp3")
+w2 <- tempfile(fileext = ".wav")
+file.create(m)
+file.create(w2)
+# audio_concat() normalizes its inputs; on macOS /var resolves to /private/var.
+m <- normalizePath(m)
+w2 <- normalizePath(w2)
+cmd2 <- audio_concat(c(m, w2), tempfile(fileext = ".mp3"),
+                     sample_rate = 48000, channels = 1, dry_run = TRUE)
+expect_true(grepl(paste0("-f mp3 -i ", m), cmd2, fixed = TRUE))
+expect_true(grepl(paste0(" -i ", w2), cmd2, fixed = TRUE))
+expect_false(grepl(paste0("-f mp3 -i ", w2), cmd2, fixed = TRUE))
+unlink(c(m, w2))
 
 # --- real concat -----------------------------------------------------------
 
@@ -66,6 +90,16 @@ if (at_home() && nzchar(Sys.which("ffmpeg"))) {
     out2 <- file.path(dir, "plain.wav")
     audio_concat(c(w1, w2), out2)
     expect_true(abs(probe(out2, "duration") - 2) < 0.05)
+
+    # Regression: an apad-windowed mp3 slice (as .audio_window produces) can
+    # be misdetected by ffmpeg's container probe as raw H.266/VVC, failing
+    # with status 234. audio_concat() must force the mp3 demuxer and succeed.
+    src <- file.path(dir, "bed.mp3")  # produced above, a real mp3 bed
+    win <- file.path(dir, "win.mp3")
+    .audio_window(src, win, start = 0, duration = 2.5)
+    joined <- file.path(dir, "joined.mp3")
+    expect_silent(audio_concat(win, joined, tail = 0.1))
+    expect_true(abs(probe(joined, "duration") - 2.6) < 0.2)
 
     unlink(dir, recursive = TRUE)
 }

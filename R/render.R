@@ -883,7 +883,7 @@
 #' @keywords internal
 .mix_audio <- function(files, output, dry_run = FALSE) {
     n <- length(files)
-    ins <- as.vector(rbind(rep("-i", n), files))
+    ins <- unlist(lapply(files, function(f) c(.audio_demuxer(f), "-i", f)))
     labels <- paste(sprintf("[%d:a]", seq_len(n) - 1L), collapse = "")
     filt <- sprintf(
                     "%samix=inputs=%d:duration=longest:dropout_transition=0:normalize=0[aout]",
@@ -934,7 +934,8 @@
 #' @return \code{output}, invisibly.
 #' @keywords internal
 .audio_window <- function(input, output, start, duration) {
-    .run_ffmpeg(c("-y", "-ss", format(start, scientific = FALSE), "-i",
+    .run_ffmpeg(c("-y", "-ss", format(start, scientific = FALSE),
+                  .audio_demuxer(input), "-i",
                   input, "-af", "apad", "-t",
                   format(duration, scientific = FALSE), output))
     invisible(output)
